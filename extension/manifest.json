@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "WebMCP Sidecar (Phase0)",
+  "version": "0.0.1",
+  "description": "Phase 0 kernel: discover WebMCP tools and call execute() from a Side Panel.",
+  "permissions": ["sidePanel", "scripting", "tabs"],
+  "host_permissions": ["https://googlechromelabs.github.io/*"],
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://googlechromelabs.github.io/*"],
+      "js": ["content_isolated.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_title": "WebMCP Sidecar"
+  }
+}
