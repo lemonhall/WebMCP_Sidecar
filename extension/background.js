@@ -58,6 +58,66 @@ async function getActiveTabId() {
   return active.id
 }
 
+function originPatternToIds(originPattern) {
+  const idBase = originPattern.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 40)
+  return { isolatedId: `wmcp_iso_${idBase}`, mainId: `wmcp_main_${idBase}` }
+}
+
+async function registerScriptsForOrigin(originPattern) {
+  const { isolatedId, mainId } = originPatternToIds(originPattern)
+  await chrome.scripting.unregisterContentScripts({ ids: [isolatedId, mainId] }).catch(() => {})
+
+  await chrome.scripting.registerContentScripts([
+    {
+      id: isolatedId,
+      matches: [originPattern],
+      js: ['content_isolated.js'],
+      runAt: 'document_start',
+      persistAcrossSessions: true,
+    },
+    {
+      id: mainId,
+      matches: [originPattern],
+      js: ['main_bridge.js'],
+      runAt: 'document_start',
+      persistAcrossSessions: true,
+      world: 'MAIN',
+    },
+  ])
+}
+
+async function repairDynamicScriptsFromPermissions() {
+  // Fix-up for stale/duplicated dynamic scripts across extension reloads.
+  // We intentionally only touch scripts created by this extension (wmcp_* ids).
+  try {
+    const regs = await chrome.scripting.getRegisteredContentScripts()
+    const ids = (regs ?? [])
+      .map((r) => r?.id)
+      .filter((id) => typeof id === 'string' && (id.startsWith('wmcp_iso_') || id.startsWith('wmcp_main_')))
+
+    if (ids.length) await chrome.scripting.unregisterContentScripts({ ids }).catch(() => {})
+
+    const perms = await chrome.permissions.getAll()
+    const origins = Array.isArray(perms?.origins) ? perms.origins : []
+    for (const originPattern of origins) {
+      if (typeof originPattern !== 'string') continue
+      // If user granted the demo origin, we may end up with both static and dynamic injection.
+      // Our content scripts are idempotent, so this is safe.
+      await registerScriptsForOrigin(originPattern).catch(() => {})
+    }
+  } catch (_) {
+    // ignore
+  }
+}
+
+chrome.runtime.onInstalled?.addListener(() => {
+  repairDynamicScriptsFromPermissions()
+})
+
+chrome.runtime.onStartup?.addListener(() => {
+  repairDynamicScriptsFromPermissions()
+})
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   ;(async () => {
     if (!message || typeof message !== 'object') return
@@ -65,29 +125,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === WMCP.PANEL_TO_BG.REGISTER_ORIGIN) {
       const { originPattern, tabId } = message
       if (typeof originPattern !== 'string') throw new Error('originPattern must be string')
-      const idBase = originPattern.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 40)
-      const isolatedId = `wmcp_iso_${idBase}`
-      const mainId = `wmcp_main_${idBase}`
-
-      await chrome.scripting.unregisterContentScripts({ ids: [isolatedId, mainId] }).catch(() => {})
-
-      await chrome.scripting.registerContentScripts([
-        {
-          id: isolatedId,
-          matches: [originPattern],
-          js: ['content_isolated.js'],
-          runAt: 'document_start',
-          persistAcrossSessions: true,
-        },
-        {
-          id: mainId,
-          matches: [originPattern],
-          js: ['main_bridge.js'],
-          runAt: 'document_start',
-          persistAcrossSessions: true,
-          world: 'MAIN',
-        },
-      ])
+      await registerScriptsForOrigin(originPattern)
 
       // Best-effort immediate injection for current tab, so user doesn't need to reload.
       if (typeof tabId === 'number') {
