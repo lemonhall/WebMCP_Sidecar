@@ -31,6 +31,9 @@ test('phase0: refresh tools and call searchFlights', async () => {
     const panelPage = await context.newPage()
     await panelPage.goto(`chrome-extension://${extensionId}/sidepanel.html`, { waitUntil: 'domcontentloaded' })
 
+    // Phase 1 default view is Chat; switch to Inspector for the Phase 0 kernel regression.
+    await panelPage.getByRole('button', { name: 'Inspector' }).click()
+
     await panelPage.getByRole('button', { name: 'Refresh' }).click()
     await expect(panelPage.locator('#status')).toContainText('tools=')
 

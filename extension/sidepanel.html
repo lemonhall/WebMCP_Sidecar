@@ -9,6 +9,24 @@
         font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, 'Apple Color Emoji', 'Segoe UI Emoji';
         margin: 12px;
       }
+      .tabs {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+      .tab {
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        padding: 6px 10px;
+        border-radius: 999px;
+        cursor: pointer;
+      }
+      .tab.active {
+        background: #111827;
+        color: #fff;
+        border-color: #111827;
+      }
       .row {
         display: flex;
         gap: 8px;
@@ -35,44 +53,98 @@
         color: #666;
         font-size: 12px;
       }
+      .hidden {
+        display: none !important;
+      }
+      .chatMessages {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin: 10px 0;
+      }
+      .msg {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 8px 10px;
+        background: #fff;
+      }
+      .msg .meta {
+        font-size: 12px;
+        color: #6b7280;
+        margin-bottom: 4px;
+      }
+      .msg .text {
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 13px;
+      }
+      .msg.tool {
+        background: #f9fafb;
+      }
+      .chatInput {
+        width: 100%;
+        height: 88px;
+      }
     </style>
   </head>
   <body>
-    <div class="row">
-      <button id="refresh">Refresh</button>
+    <div class="tabs">
+      <button class="tab active" id="tabChat">Chat</button>
+      <button class="tab" id="tabInspector">Inspector</button>
+      <span style="flex: 1"></span>
       <button id="settings">Settings</button>
       <span class="muted" id="status">idle</span>
     </div>
 
-    <div class="row">
-      <button id="grant">Grant Site</button>
-      <span class="muted" id="site">site: unknown</span>
-    </div>
+    <section id="chatSection">
+      <div class="row">
+        <button id="chatClear">Clear</button>
+        <span class="muted" id="chatHint">Use chat to run an agent turn (Phase 1).</span>
+      </div>
 
-    <div class="row">
-      <label for="tools">Tool</label>
-      <select id="tools"></select>
-    </div>
+      <div id="chatMessages" class="chatMessages"></div>
 
-    <div class="row">
-      <label for="params">Params (JSON)</label>
-    </div>
-    <textarea id="params">{}</textarea>
+      <div class="row">
+        <textarea id="chatInput" class="chatInput" placeholder="Ask something…"></textarea>
+      </div>
+      <div class="row">
+        <button id="chatSend">Send</button>
+        <span class="muted" id="chatStatus">idle</span>
+      </div>
+    </section>
 
-    <div class="row">
-      <button id="fillExample">Fill Example</button>
-      <button id="call">Call</button>
-    </div>
+    <section id="inspectorSection" class="hidden">
+      <div class="row">
+        <button id="refresh">Refresh</button>
+        <button id="grant">Grant Site</button>
+        <span class="muted" id="site">site: unknown</span>
+      </div>
 
-    <div class="row">
-      <label>Input Schema</label>
-    </div>
-    <pre id="schema"></pre>
+      <div class="row">
+        <label for="tools">Tool</label>
+        <select id="tools"></select>
+      </div>
 
-    <div class="row">
-      <label>Result</label>
-    </div>
-    <pre id="result"></pre>
+      <div class="row">
+        <label for="params">Params (JSON)</label>
+      </div>
+      <textarea id="params">{}</textarea>
+
+      <div class="row">
+        <button id="fillExample">Fill Example</button>
+        <button id="call">Call</button>
+      </div>
+
+      <div class="row">
+        <label>Input Schema</label>
+      </div>
+      <pre id="schema"></pre>
+
+      <div class="row">
+        <label>Result</label>
+      </div>
+      <pre id="result"></pre>
+    </section>
 
     <script type="module" src="sidepanel.js"></script>
   </body>

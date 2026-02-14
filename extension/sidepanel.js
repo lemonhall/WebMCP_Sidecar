@@ -1,6 +1,31 @@
+import { ChromeSessionStore } from './agent/sessionStoreChrome.js'
+import { ToolRegistry } from './agent/toolRegistry.js'
+import { ToolRunner } from './agent/toolRunner.js'
+import { AgentRuntime } from './agent/agentRuntime.js'
+import { OpenAIResponsesProvider } from './agent/openaiResponsesProvider.js'
+
+const STORAGE_SETTINGS_KEY = 'settings.llm.v1'
+const STORAGE_SESSION_ID_KEY = 'wmcp.agent.currentSessionId.v1'
+
+// Tabs / Sections
+const tabChat = document.getElementById('tabChat')
+const tabInspector = document.getElementById('tabInspector')
+const chatSection = document.getElementById('chatSection')
+const inspectorSection = document.getElementById('inspectorSection')
+
+// Shared header
 const statusEl = document.getElementById('status')
-const refreshBtn = document.getElementById('refresh')
 const settingsBtn = document.getElementById('settings')
+
+// Chat UI
+const chatMessagesEl = document.getElementById('chatMessages')
+const chatInputEl = document.getElementById('chatInput')
+const chatSendBtn = document.getElementById('chatSend')
+const chatClearBtn = document.getElementById('chatClear')
+const chatStatusEl = document.getElementById('chatStatus')
+
+// Inspector UI (Phase 0 kernel)
+const refreshBtn = document.getElementById('refresh')
 const grantBtn = document.getElementById('grant')
 const callBtn = document.getElementById('call')
 const fillExampleBtn = document.getElementById('fillExample')
@@ -16,9 +41,132 @@ function setStatus(text) {
   statusEl.textContent = text
 }
 
+function setChatStatus(text) {
+  chatStatusEl.textContent = text
+}
+
 function setResult(obj) {
   resultEl.textContent = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2)
 }
+
+function setTabActive(which) {
+  tabChat.classList.toggle('active', which === 'chat')
+  tabInspector.classList.toggle('active', which === 'inspector')
+  chatSection.classList.toggle('hidden', which !== 'chat')
+  inspectorSection.classList.toggle('hidden', which !== 'inspector')
+}
+
+function scrollChatToBottom() {
+  const el = chatMessagesEl
+  el.scrollTop = el.scrollHeight
+}
+
+function renderChatEvent(e) {
+  const div = document.createElement('div')
+  div.className = 'msg'
+
+  let meta = ''
+  let text = ''
+  let isTool = false
+
+  if (e.type === 'user.message') {
+    meta = 'user'
+    text = e.text ?? ''
+  } else if (e.type === 'assistant.message') {
+    meta = 'assistant'
+    text = e.text ?? ''
+  } else if (e.type === 'tool.use') {
+    meta = `tool.use: ${e.name ?? ''}`
+    text = JSON.stringify(e.input ?? {}, null, 2)
+    isTool = true
+  } else if (e.type === 'tool.result') {
+    meta = `tool.result${e.isError ? ' (error)' : ''}`
+    text = e.isError ? String(e.errorMessage ?? 'Tool failed') : JSON.stringify(e.output ?? null, null, 2)
+    isTool = true
+  } else if (e.type === 'result') {
+    meta = `result: ${e.stopReason ?? 'end'}`
+    text = e.finalText ?? ''
+    isTool = true
+  } else if (e.type === 'system.init') {
+    meta = 'system.init'
+    text = e.sessionId ?? ''
+    isTool = true
+  } else {
+    meta = e.type ?? 'event'
+    text = JSON.stringify(e, null, 2)
+    isTool = true
+  }
+
+  if (isTool) div.classList.add('tool')
+
+  const metaEl = document.createElement('div')
+  metaEl.className = 'meta'
+  metaEl.textContent = meta
+
+  const textEl = document.createElement('div')
+  textEl.className = 'text'
+  textEl.textContent = text
+
+  div.appendChild(metaEl)
+  div.appendChild(textEl)
+  return div
+}
+
+async function renderChat(sessionStore, sessionId) {
+  const events = await sessionStore.readEvents(sessionId)
+  chatMessagesEl.innerHTML = ''
+  for (const e of events) chatMessagesEl.appendChild(renderChatEvent(e))
+  scrollChatToBottom()
+}
+
+async function getOrCreateSessionId(sessionStore) {
+  const stored = await chrome.storage.local.get(STORAGE_SESSION_ID_KEY)
+  const existing = stored?.[STORAGE_SESSION_ID_KEY]
+  if (typeof existing === 'string' && existing) return existing
+  const id = await sessionStore.createSession({ metadata: { kind: 'sidepanel' } })
+  await chrome.storage.local.set({ [STORAGE_SESSION_ID_KEY]: id })
+  return id
+}
+
+async function loadSettings() {
+  const stored = await chrome.storage.local.get(STORAGE_SETTINGS_KEY)
+  const v = stored?.[STORAGE_SETTINGS_KEY] ?? {}
+  return {
+    baseUrl: typeof v.baseUrl === 'string' ? v.baseUrl.trim() : '',
+    model: typeof v.model === 'string' ? v.model.trim() : '',
+    apiKey: typeof v.apiKey === 'string' ? v.apiKey : '',
+  }
+}
+
+function toOriginPattern(baseUrlText) {
+  try {
+    const url = new URL(baseUrlText)
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
+    return `${url.origin}/*`
+  } catch {
+    return null
+  }
+}
+
+async function ensureHostPermissionForBaseUrl(baseUrl) {
+  const originPattern = toOriginPattern(baseUrl)
+  if (!originPattern) return { ok: false, error: 'Invalid Base URL (must be http(s) URL)' }
+
+  try {
+    const already = await chrome.permissions.contains({ origins: [originPattern] })
+    if (already) return { ok: true, originPattern, already: true }
+  } catch (_) {
+    // continue to request
+  }
+
+  const granted = await chrome.permissions.request({ origins: [originPattern] })
+  if (!granted) return { ok: false, error: `Permission denied for ${originPattern}` }
+  return { ok: true, originPattern, already: false }
+}
+
+// -------------------------
+// Inspector (Phase 0) logic
+// -------------------------
 
 function setTools(tools) {
   currentTools = Array.isArray(tools) ? tools : []
@@ -83,17 +231,23 @@ async function refreshSite() {
   }
 }
 
+async function wmcpRefreshTools() {
+  const res = await chrome.runtime.sendMessage({ type: 'wmcp:refresh' })
+  if (!res?.ok) throw new Error(res?.error ?? 'wmcp:refresh failed')
+  return res.tools ?? []
+}
+
 async function refreshTools() {
   setStatus('refreshing...')
   setResult('')
-  const res = await chrome.runtime.sendMessage({ type: 'wmcp:refresh' })
-  if (!res?.ok) {
+  try {
+    const tools = await wmcpRefreshTools()
+    setTools(tools)
+    setStatus(`tools=${tools.length}`)
+  } catch (e) {
     setStatus('error')
-    setResult(res?.error ?? 'unknown error')
-    return
+    setResult(String(e?.message ?? e))
   }
-  setTools(res.tools ?? [])
-  setStatus(`tools=${(res.tools ?? []).length}`)
 }
 
 async function grantCurrentSite() {
@@ -116,7 +270,6 @@ function fillExample() {
   const tool = getSelectedTool()
   if (!tool?.name) return
 
-  // Known-good demo params for humans (react-flightsearch).
   if (tool.name === 'searchFlights') {
     paramsEl.value = JSON.stringify(
       {
@@ -137,6 +290,14 @@ function fillExample() {
   paramsEl.value = JSON.stringify(example ?? {}, null, 2)
 }
 
+async function wmcpCallTool(toolName, params) {
+  const res = await chrome.runtime.sendMessage({ type: 'wmcp:call', toolName, params: params ?? {} })
+  if (!res?.ok) throw new Error(res?.error ?? 'wmcp:call failed')
+  const payload = res.result
+  if (payload?.ok) return payload.result
+  throw new Error(payload?.error ?? 'tool call failed')
+}
+
 async function callTool() {
   const toolName = toolsSelect.value
   let params = {}
@@ -148,22 +309,132 @@ async function callTool() {
   }
 
   setStatus('calling...')
-  const res = await chrome.runtime.sendMessage({ type: 'wmcp:call', toolName, params })
-  if (!res?.ok) {
+  try {
+    const out = await wmcpCallTool(toolName, params)
+    setStatus('done')
+    setResult({ ok: true, result: out })
+  } catch (e) {
     setStatus('error')
-    setResult(res?.error ?? 'unknown error')
-    return
+    setResult({ ok: false, error: String(e?.message ?? e) })
   }
-  setStatus('done')
-  setResult(res.result)
 }
 
-refreshBtn.addEventListener('click', refreshTools)
+// -------------------------
+// Chat (Phase 1) logic
+// -------------------------
+
+async function runAgentTurn(sessionStore, sessionId, userText) {
+  const settings = await loadSettings()
+  if (!settings.baseUrl || !settings.model || !settings.apiKey) {
+    await sessionStore.appendEvent(sessionId, {
+      type: 'assistant.message',
+      text: 'LLM settings missing. Click Settings and fill baseUrl / model / apiKey, then Test.',
+      ts: Date.now(),
+    })
+    return
+  }
+
+  const perm = await ensureHostPermissionForBaseUrl(settings.baseUrl)
+  if (!perm.ok) {
+    await sessionStore.appendEvent(sessionId, { type: 'assistant.message', text: `Permission error: ${perm.error}`, ts: Date.now() })
+    return
+  }
+
+  const toolsMeta = await wmcpRefreshTools().catch(() => [])
+  const registry = new ToolRegistry()
+  for (const t of toolsMeta) {
+    if (!t?.name) continue
+    registry.set({
+      name: t.name,
+      description: t.description ?? '',
+      inputSchema: t.inputSchema,
+      run: async (input) => await wmcpCallTool(t.name, input),
+    })
+  }
+
+  const provider = new OpenAIResponsesProvider({ baseUrl: settings.baseUrl })
+  const runner = new ToolRunner({ tools: registry, sessionStore })
+  const runtime = new AgentRuntime({
+    sessionStore,
+    toolRunner: runner,
+    tools: registry,
+    provider,
+    model: settings.model,
+    apiKey: settings.apiKey,
+    systemPrompt:
+      'You are a browser side-panel agent. Use available tools when needed. If you call a tool, wait for results, then summarize succinctly.',
+    maxSteps: 8,
+  })
+
+  for await (const _ev of runtime.runTurn({ sessionId, userText })) {
+    // Events are stored in sessionStore; UI will re-render.
+  }
+}
+
+async function onChatSend(sessionStore, sessionId) {
+  const text = String(chatInputEl.value ?? '').trim()
+  if (!text) return
+  chatInputEl.value = ''
+
+  setChatStatus('running...')
+  chatSendBtn.disabled = true
+  chatClearBtn.disabled = true
+
+  try {
+    await runAgentTurn(sessionStore, sessionId, text)
+  } catch (e) {
+    await sessionStore.appendEvent(sessionId, { type: 'assistant.message', text: `Agent error: ${String(e?.message ?? e)}`, ts: Date.now() })
+  } finally {
+    await renderChat(sessionStore, sessionId)
+    setChatStatus('idle')
+    chatSendBtn.disabled = false
+    chatClearBtn.disabled = false
+  }
+}
+
+async function onChatClear(sessionStore, sessionId) {
+  await sessionStore.clearEvents(sessionId)
+  await renderChat(sessionStore, sessionId)
+}
+
+// -------------------------
+// Boot
+// -------------------------
+
 settingsBtn?.addEventListener('click', () => chrome.runtime.openOptionsPage())
+
+tabChat.addEventListener('click', () => setTabActive('chat'))
+tabInspector.addEventListener('click', () => setTabActive('inspector'))
+
+toolsSelect.addEventListener('change', renderSelectedTool)
+refreshBtn.addEventListener('click', refreshTools)
 callBtn.addEventListener('click', callTool)
 grantBtn.addEventListener('click', () => grantCurrentSite().catch((e) => setResult(String(e?.message ?? e))))
 fillExampleBtn.addEventListener('click', fillExample)
-toolsSelect.addEventListener('change', renderSelectedTool)
 
-refreshTools().catch((e) => setResult(String(e?.message ?? e)))
-refreshSite().catch(() => {})
+;(async () => {
+  const sessionStore = new ChromeSessionStore()
+  const sessionId = await getOrCreateSessionId(sessionStore)
+
+  chatSendBtn.addEventListener('click', () => onChatSend(sessionStore, sessionId))
+  chatClearBtn.addEventListener('click', () => onChatClear(sessionStore, sessionId))
+  chatInputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) onChatSend(sessionStore, sessionId)
+  })
+
+  setTabActive('chat')
+  setStatus('idle')
+  setChatStatus('idle')
+
+  await renderChat(sessionStore, sessionId)
+  await refreshSite().catch(() => {})
+  // Pre-load tool list in background (Inspector still requires explicit Refresh).
+  wmcpRefreshTools().catch(() => {})
+})().catch((e) => {
+  setStatus('error')
+  setChatStatus('error')
+  const msg = String(e?.message ?? e)
+  chatMessagesEl.innerHTML = ''
+  chatMessagesEl.appendChild(renderChatEvent({ type: 'assistant.message', text: `Boot error: ${msg}` }))
+})
+
