@@ -32,6 +32,22 @@ function buildUrl(baseUrl, path) {
   return u.toString()
 }
 
+function buildOpenAICompatibleUrl(baseUrl, apiPath) {
+  const u = new URL(baseUrl)
+  const basePath = u.pathname.replace(/\/+$/, '')
+  const endsWithV1 = /\/v1$/i.test(basePath)
+
+  // Allow user to configure baseUrl either as:
+  // - https://host            (we call /v1/...)
+  // - https://host/v1         (we call /... without duplicating /v1)
+  // - https://host/prefix/v1  (same behavior)
+  const effectiveApiPath = endsWithV1 ? apiPath.replace(/^\/v1\b/i, '') : apiPath
+
+  const joinedPath = `${basePath}${effectiveApiPath}`
+  u.pathname = joinedPath.startsWith('/') ? joinedPath : `/${joinedPath}`
+  return u.toString()
+}
+
 async function loadSettings() {
   const stored = await chrome.storage.local.get(STORAGE_KEY)
   const v = stored?.[STORAGE_KEY] ?? {}
@@ -116,7 +132,7 @@ async function testLLM() {
     return
   }
 
-  const responsesUrl = buildUrl(baseUrl, '/v1/responses')
+  const responsesUrl = buildOpenAICompatibleUrl(baseUrl, '/v1/responses')
   const body = {
     model,
     input: 'ping',
@@ -138,7 +154,7 @@ async function testLLM() {
     return
   }
 
-  const ccUrl = buildUrl(baseUrl, '/v1/chat/completions')
+  const ccUrl = buildOpenAICompatibleUrl(baseUrl, '/v1/chat/completions')
   const r2 = await postJson(ccUrl, apiKey, {
     model,
     messages: [{ role: 'user', content: 'ping' }],
@@ -176,4 +192,3 @@ testBtn.addEventListener('click', () =>
 )
 
 loadSettings().catch((e) => setResult({ ok: false, message: String(e?.message ?? e) }))
-

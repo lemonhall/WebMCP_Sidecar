@@ -54,12 +54,13 @@
   <body>
     <h1>Settings（Phase 1）</h1>
     <div class="muted">仅存储在扩展内（chrome.storage.local），不会进入页面 MAIN world。</div>
+    <div class="muted">Base URL 可填到 host（如 https://api.openai.com）或带 /v1 的前缀（如 https://host/prefix/v1）。</div>
 
     <div style="height: 12px"></div>
 
     <div class="grid">
       <label for="baseUrl">Base URL</label>
-      <input id="baseUrl" placeholder="https://api.openai.com" />
+      <input id="baseUrl" placeholder="https://api.openai.com 或 https://host/prefix/v1" />
 
       <label for="model">Model</label>
       <input id="model" placeholder="gpt-4.1-mini（示例）" />
@@ -79,4 +80,3 @@
     <script type="module" src="options.js"></script>
   </body>
 </html>
-
