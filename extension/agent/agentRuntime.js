@@ -78,26 +78,28 @@ export class AgentRuntime {
         -1,
         ...events.filter((e) => e?.type === 'system.notice' && typeof e.ts === 'number').map((e) => e.ts)
       )
-      const lastAssistantTs = Math.max(
-        -1,
-        ...events.filter((e) => e?.type === 'assistant.message' && typeof e.ts === 'number').map((e) => e.ts)
-      )
-      const noticePending = lastNoticeTs > lastAssistantTs
+      const lastToolUseTs = Math.max(-1, ...events.filter((e) => e?.type === 'tool.use' && typeof e.ts === 'number').map((e) => e.ts))
+      const noticePending = lastNoticeTs > lastToolUseTs
+      const enforceToolAttempt = noticePending && this.#noticeEnforcementBudget > 0
 
       const providerInput = rebuildResponsesInput(events)
 
       const prompt = typeof this.#systemPrompt === 'string' && this.#systemPrompt.trim() ? this.#systemPrompt : null
       const toolNames = typeof this.#tools?.names === 'function' ? this.#tools.names() : []
       const toolHint = `Available tool names (refreshed): ${Array.isArray(toolNames) && toolNames.length ? toolNames.join(', ') : '(none)'}`
+      const navGuard = enforceToolAttempt
+        ? 'Navigation/tool reload detected. Before answering, you MUST attempt at least one relevant tool call on the new page. If no relevant tool exists, explicitly list available tool names and state why you cannot proceed.'
+        : null
       const providerInput2 = [
         ...(prompt ? [{ role: 'system', content: prompt }] : []),
         { role: 'system', content: toolHint },
+        ...(navGuard ? [{ role: 'system', content: navGuard }] : []),
         ...providerInput,
       ]
 
       const toolSchemas = toolSchemasForOpenAIResponses(this.#tools)
       const streamed =
-        typeof this.#provider.stream === 'function'
+        !enforceToolAttempt && typeof this.#provider.stream === 'function'
           ? await this.#callStreamed(sessionId, { model: this.#model, input: providerInput2, tools: toolSchemas, apiKey: this.#apiKey, store: false })
           : null
 
@@ -124,16 +126,11 @@ export class AgentRuntime {
 
       if (out.assistantText == null) break
 
-      // If we detected navigation/tool reload, require at least one more tool attempt before final answer.
-      if (noticePending && this.#noticeEnforcementBudget > 0) {
+      // If we detected navigation/tool reload, require at least one tool attempt AFTER the notice.
+      // When enforceToolAttempt is true, we avoid streaming and discard assistant answers until a tool call happens
+      // (bounded by noticeEnforcementBudget to prevent infinite loops).
+      if (enforceToolAttempt) {
         this.#noticeEnforcementBudget -= 1
-        const n = {
-          type: 'system.notice',
-          text: 'Notice: tools were reloaded due to navigation. Before answering, you MUST attempt at least one relevant tool call on the new page. If no relevant tool exists, explicitly list available tool names and state why you cannot proceed.',
-          ts: now(),
-        }
-        await this.#store.appendEvent(sessionId, n)
-        yield n
         continue
       }
 

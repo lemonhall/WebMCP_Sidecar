@@ -2,6 +2,7 @@ const WMCP = {
   PANEL_TO_BG: {
     REFRESH: 'wmcp:refresh',
     CALL: 'wmcp:call',
+    GET_ACTIVE_TAB: 'wmcp:getActiveTab',
   },
   BG_TO_CS: {
     LIST_TOOLS: 'wmcp:listTools',
@@ -60,6 +61,20 @@ async function getActiveTabId() {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   ;(async () => {
     if (!message || typeof message !== 'object') return
+
+    if (message.type === WMCP.PANEL_TO_BG.GET_ACTIVE_TAB) {
+      const tabId = await getActiveTabId()
+      try {
+        const tab = await chrome.tabs.get(tabId)
+        sendResponse({
+          ok: true,
+          tab: { id: tab?.id ?? null, url: tab?.url ?? null, title: tab?.title ?? null },
+        })
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message ?? e) })
+      }
+      return
+    }
 
     if (message.type === WMCP.PANEL_TO_BG.REFRESH) {
       const tabId = await getActiveTabId()

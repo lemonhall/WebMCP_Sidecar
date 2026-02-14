@@ -22,6 +22,7 @@ const chatMessagesEl = document.getElementById('chatMessages')
 const chatInputEl = document.getElementById('chatInput')
 const chatSendBtn = document.getElementById('chatSend')
 const chatClearBtn = document.getElementById('chatClear')
+const chatCopyBtn = document.getElementById('chatCopy')
 const chatStatusEl = document.getElementById('chatStatus')
 
 // Inspector UI (Phase 0 kernel)
@@ -35,6 +36,8 @@ const siteEl = document.getElementById('site')
 const resultEl = document.getElementById('result')
 
 let currentTools = []
+
+const MAX_TOOL_RESULT_LINES = 10
 
 function setStatus(text) {
   statusEl.textContent = text
@@ -58,6 +61,14 @@ function setTabActive(which) {
 function scrollChatToBottom() {
   const el = chatMessagesEl
   el.scrollTop = el.scrollHeight
+}
+
+function truncateLines(text, maxLines) {
+  const s = typeof text === 'string' ? text : String(text ?? '')
+  const limit = typeof maxLines === 'number' && maxLines > 0 ? maxLines : 10
+  const lines = s.split('\n')
+  if (lines.length <= limit) return { text: s, truncated: false }
+  return { text: `${lines.slice(0, limit).join('\n')}\n… (${lines.length - limit} more lines, click to expand)`, truncated: true }
 }
 
 function renderChatEvent(e) {
@@ -87,9 +98,36 @@ function renderChatEvent(e) {
     text = JSON.stringify(e.input ?? {}, null, 2)
     isTool = true
   } else if (e.type === 'tool.result') {
-    meta = `tool.result${e.isError ? ' (error)' : ''}`
-    text = e.isError ? String(e.errorMessage ?? 'Tool failed') : JSON.stringify(e.output ?? null, null, 2)
+    const full = e.isError ? String(e.errorMessage ?? 'Tool failed') : JSON.stringify(e.output ?? null, null, 2)
+    const tr = truncateLines(full, MAX_TOOL_RESULT_LINES)
+    meta = `tool.result${e.isError ? ' (error)' : ''}${tr.truncated ? ' (truncated)' : ''}`
+    text = tr.text
     isTool = true
+
+    if (tr.truncated) {
+      div.classList.add('truncatable')
+      div.tabIndex = 0
+      div.title = 'Click to expand/collapse'
+
+      const collapsedText = tr.text
+      const fullText = full
+      let expanded = false
+      const toggle = () => {
+        expanded = !expanded
+        const metaEl = div.querySelector('.meta')
+        const txtEl = div.querySelector('.text')
+        if (txtEl) txtEl.textContent = expanded ? fullText : collapsedText
+        if (metaEl) metaEl.textContent = expanded ? `tool.result${e.isError ? ' (error)' : ''}` : meta
+      }
+
+      div.addEventListener('click', toggle)
+      div.addEventListener('keydown', (ke) => {
+        if (ke.key === 'Enter' || ke.key === ' ') {
+          ke.preventDefault()
+          toggle()
+        }
+      })
+    }
   } else if (e.type === 'result') {
     meta = `result: ${e.stopReason ?? 'end'}`
     isTool = true
@@ -116,6 +154,80 @@ function renderChatEvent(e) {
   div.appendChild(metaEl)
   div.appendChild(textEl)
   return div
+}
+
+function stringifyForTranscript(value) {
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value ?? null, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+function buildTranscript(events) {
+  const lines = []
+  for (const e of events) {
+    if (!e || typeof e !== 'object') continue
+    if (e.type === 'assistant.delta') continue
+
+    if (e.type === 'system.init') {
+      lines.push(`system.init\n${e.sessionId ?? ''}`.trimEnd())
+      continue
+    }
+    if (e.type === 'system.notice') {
+      lines.push(`system.notice\n${e.text ?? ''}`.trimEnd())
+      continue
+    }
+    if (e.type === 'user.message') {
+      lines.push(`user\n${e.text ?? ''}`.trimEnd())
+      continue
+    }
+    if (e.type === 'assistant.message') {
+      lines.push(`assistant\n${e.text ?? ''}`.trimEnd())
+      continue
+    }
+    if (e.type === 'tool.use') {
+      lines.push(`tool.use: ${e.name ?? ''}\n${stringifyForTranscript(e.input ?? {})}`.trimEnd())
+      continue
+    }
+    if (e.type === 'tool.result') {
+      if (e.isError) {
+        lines.push(`tool.result (error)\n${e.errorMessage ?? 'Tool failed'}`.trimEnd())
+      } else {
+        lines.push(`tool.result\n${stringifyForTranscript(e.output ?? null)}`.trimEnd())
+      }
+      continue
+    }
+    if (e.type === 'result') {
+      lines.push(`result: ${e.stopReason ?? 'end'}`)
+      continue
+    }
+
+    lines.push(`${e.type ?? 'event'}\n${stringifyForTranscript(e)}`.trimEnd())
+  }
+
+  return lines.join('\n\n')
+}
+
+async function copyToClipboard(text) {
+  if (typeof text !== 'string') throw new Error('copyToClipboard: text must be string')
+
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.setAttribute('readonly', '')
+  ta.style.position = 'fixed'
+  ta.style.top = '-9999px'
+  document.body.appendChild(ta)
+  ta.select()
+  const ok = document.execCommand('copy')
+  document.body.removeChild(ta)
+  if (!ok) throw new Error('document.execCommand(copy) failed')
 }
 
 async function renderChat(sessionStore, sessionId) {
@@ -207,8 +319,8 @@ function renderSelectedTool() {
 
 async function refreshSite() {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-    const url = tab?.url ? new URL(tab.url) : null
+    const tab = await getActiveHttpTab()
+    const url = typeof tab?.url === 'string' && tab.url ? new URL(tab.url) : null
     siteEl.textContent = url ? `site: ${url.origin}` : 'site: unknown'
   } catch (_) {
     siteEl.textContent = 'site: unknown'
@@ -266,8 +378,15 @@ async function wmcpCallTool(toolName, params) {
   throw new Error(payload?.error ?? 'tool call failed')
 }
 
-async function getActiveTabUrl() {
+async function getActiveHttpTab() {
+  const res = await chrome.runtime.sendMessage({ type: 'wmcp:getActiveTab' }).catch(() => null)
+  if (res?.ok && res.tab && typeof res.tab === 'object') return res.tab
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+  return { id: tab?.id ?? null, url: tab?.url ?? null, title: tab?.title ?? null }
+}
+
+async function getActiveTabUrl() {
+  const tab = await getActiveHttpTab()
   return typeof tab?.url === 'string' ? tab.url : ''
 }
 
@@ -417,7 +536,7 @@ async function onChatSend(sessionStore, sessionId) {
     await refreshRegistryTools()
     const runner = new ToolRunner({ tools: registry, sessionStore })
     const provider = new OpenAIResponsesProvider({ baseUrl: settings.baseUrl })
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+    const tab = await getActiveHttpTab().catch(() => ({ url: '', title: '' }))
     const tabUrl = typeof tab?.url === 'string' ? tab.url : ''
     const tabTitle = typeof tab?.title === 'string' ? tab.title : ''
 
@@ -487,6 +606,14 @@ async function onChatClear(sessionStore, sessionId) {
   await renderChat(sessionStore, sessionId)
 }
 
+async function onChatCopy(sessionStore, sessionId) {
+  const events = await sessionStore.readEvents(sessionId)
+  const text = buildTranscript(events)
+  await copyToClipboard(text)
+  setChatStatus(`copied (${events.length} events)`)
+  setTimeout(() => setChatStatus('idle'), 900)
+}
+
 // -------------------------
 // Boot
 // -------------------------
@@ -507,6 +634,7 @@ fillExampleBtn.addEventListener('click', fillExample)
 
   chatSendBtn.addEventListener('click', () => onChatSend(sessionStore, sessionId))
   chatClearBtn.addEventListener('click', () => onChatClear(sessionStore, sessionId))
+  chatCopyBtn?.addEventListener('click', () => onChatCopy(sessionStore, sessionId).catch(() => setChatStatus('copy failed')))
   chatInputEl.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) onChatSend(sessionStore, sessionId)
   })
