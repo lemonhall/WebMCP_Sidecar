@@ -5,7 +5,9 @@ WebMCP Sidecar is a **Chrome extension** (Manifest V3 + Side Panel + Options/Set
 - Call those tools from the Side Panel **Inspector**
 - Run a basic **Chat Agent** in the Side Panel that can use page tools + local “shadow workspace” tools (OPFS) + web tools
 
-中文说明：`README.zh_ch.md`
+Chinese README: `README.zh_ch.md`
+
+Repo: `https://github.com/lemonhall/WebMCP_Sidecar`
 
 ## For beginners: install the extension (unpacked)
 
@@ -25,6 +27,23 @@ This project is intended for **Developer Mode** (not Chrome Web Store).
 4) Open the Side Panel
 - Click the extension icon (or pin it first)
 - Chrome should open a **Side Panel** for this extension
+
+## What it can do today
+
+- **WebMCP Inspector (Phase 0)**: refresh tool list and call tools on the active page
+- **Chat Agent (Phase 1)**:
+  - streaming responses + chat history
+  - tool calls and (truncated) tool results are visible in the transcript
+  - tool reload after tab navigation (URL changes)
+  - copy transcript with one click
+- **Web tools**:
+  - `WebFetch` (HTTP(S) fetch; private networks blocked by default unless `allow_private_networks: true`)
+  - `WebSearch` (Tavily if configured; otherwise a fallback mode)
+- **Skills (Meta Tool) + OPFS shadow workspace**:
+  - file tree inside the extension: `.agents/skills/*` and `.agents/sessions/*`
+  - `ListSkills` / `Skill` meta tools, plus filesystem tools (`ListDir/Read/Write/Edit/Glob/Grep/Mkdir/Delete`)
+  - built-in skills will be installed into OPFS on first use (includes `hello-world`, `deep-research`, `find-skills`, `brainstorming`, `skill-creator`)
+- **Deep research workflow**: using `$deep-research` skill directive + `WebSearch` to produce a cited report (model-dependent)
 
 ## Screenshots
 
@@ -82,6 +101,17 @@ Built-in skills will be installed into OPFS on first use of `ListSkills` / `Skil
 - `skill-creator`
 
 Usage: type `$deep-research` (or any `$<skill-name>`) in Chat to request loading that skill.
+
+## Roadmap (vision)
+
+This repo intentionally starts from a “minimal kernel”, then grows into a practical browser sidecar. The next big milestones:
+
+- **Git in the shadow workspace**: manage a small workspace repo (status/log/diff/commit) inside the extension
+- **Self-service skill install**: use `find-skills` + installer flows to install skills into `.agents/skills/*`
+- **Tab automation**: list/switch/close tabs; open URLs; run scripted multi-tab workflows
+- **DOM read/write**: read page DOM safely; write DOM (automation) with explicit user intent
+- **Summarize & extract**: one-click article summarization / outline / key points for the current tab
+- **AI-friendly UI**: richer “agent events” UI (timelines, tool cards, expandable results) and better long-context browsing
 
 ## Developer commands (PowerShell)
 
