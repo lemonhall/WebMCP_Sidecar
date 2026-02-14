@@ -5,6 +5,7 @@
   "description": "Phase 0 kernel: discover WebMCP tools and call execute() from a Side Panel.",
   "permissions": ["sidePanel", "scripting", "tabs"],
   "host_permissions": ["https://googlechromelabs.github.io/*"],
+  "optional_host_permissions": ["<all_urls>"],
   "side_panel": {
     "default_path": "sidepanel.html"
   },

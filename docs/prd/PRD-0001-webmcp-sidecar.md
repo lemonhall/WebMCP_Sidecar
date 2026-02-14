@@ -64,6 +64,21 @@ Phase 0 目标：验证“发现工具 → 调用工具 execute → 返回结果
 - 需求：提供可重复运行的 Playwright E2E，用于验证 Phase 0 核心用户流程（`Refresh → Call searchFlights`），避免长期依赖手工回归。
 - 验收：`npm run test:e2e` 在本机通过（至少 1 条用例全绿）。
 
+### REQ-0001-008：Tool Inspector 显示 Schema + 示例填充（v2）
+
+- 需求：Side Panel 选中工具后展示 `inputSchema`（JSON），并提供“一键填充示例参数”能力，减少手工试错。
+- 验收：选中 `searchFlights` 时能看到 schema；点击 Fill Example 后可直接 Call 成功。
+
+### REQ-0001-009：可选 Host 权限与站点授权（v2）
+
+- 需求：Side Panel 提供“一键授权当前站点”的可选 host 权限申请，并在授权成功后对当前 tab 立即注入脚本（无需刷新页面）。
+- 验收：在非 demo 域名页面点击 Grant 后，权限申请成功，且不会报 “Receiving end does not exist”。
+
+### REQ-0001-010：CI Gate（v2）
+
+- 需求：在 GitHub Actions（Windows）上运行结构校验与 Playwright E2E，作为合并门槛。
+- 验收：workflow 通过（verify + e2e）。
+
 ## 安全与隐私约束（Phase 0）
 
 - API key / 模型配置不进入 MAIN world

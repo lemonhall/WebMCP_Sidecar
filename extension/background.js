@@ -2,6 +2,7 @@ const WMCP = {
   PANEL_TO_BG: {
     REFRESH: 'wmcp:refresh',
     CALL: 'wmcp:call',
+    REGISTER_ORIGIN: 'wmcp:registerOrigin',
   },
   BG_TO_CS: {
     LIST_TOOLS: 'wmcp:listTools',
@@ -60,6 +61,54 @@ async function getActiveTabId() {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   ;(async () => {
     if (!message || typeof message !== 'object') return
+
+    if (message.type === WMCP.PANEL_TO_BG.REGISTER_ORIGIN) {
+      const { originPattern, tabId } = message
+      if (typeof originPattern !== 'string') throw new Error('originPattern must be string')
+      const idBase = originPattern.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 40)
+      const isolatedId = `wmcp_iso_${idBase}`
+      const mainId = `wmcp_main_${idBase}`
+
+      await chrome.scripting.unregisterContentScripts({ ids: [isolatedId, mainId] }).catch(() => {})
+
+      await chrome.scripting.registerContentScripts([
+        {
+          id: isolatedId,
+          matches: [originPattern],
+          js: ['content_isolated.js'],
+          runAt: 'document_start',
+          persistAcrossSessions: true,
+        },
+        {
+          id: mainId,
+          matches: [originPattern],
+          js: ['main_bridge.js'],
+          runAt: 'document_start',
+          persistAcrossSessions: true,
+          world: 'MAIN',
+        },
+      ])
+
+      // Best-effort immediate injection for current tab, so user doesn't need to reload.
+      if (typeof tabId === 'number') {
+        await chrome.scripting
+          .executeScript({
+            target: { tabId },
+            files: ['main_bridge.js'],
+            world: 'MAIN',
+          })
+          .catch(() => {})
+        await chrome.scripting
+          .executeScript({
+            target: { tabId },
+            files: ['content_isolated.js'],
+          })
+          .catch(() => {})
+      }
+
+      sendResponse({ ok: true })
+      return
+    }
 
     if (message.type === WMCP.PANEL_TO_BG.REFRESH) {
       const tabId = await getActiveTabId()

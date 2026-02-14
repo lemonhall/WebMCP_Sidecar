@@ -14,6 +14,7 @@
 - Install (Playwright): `npm install ; npx playwright install chromium`
 - E2E (Playwright): `npm run test:e2e`
 - Docs: PRD `docs/prd/PRD-0001-webmcp-sidecar.md`，Plan `docs/plan/v1-index.md`
+- v2 Plan: `docs/plan/v2-index.md`
 
 ## Architecture Overview
 ### Areas

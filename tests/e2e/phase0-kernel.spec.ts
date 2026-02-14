@@ -10,6 +10,8 @@ test('phase0: refresh tools and call searchFlights', async () => {
   const context = await chromium.launchPersistentContext(userDataDir, {
     headless: false,
     args: [
+      '--no-first-run',
+      '--no-default-browser-check',
       `--disable-extensions-except=${extensionPath}`,
       `--load-extension=${extensionPath}`,
     ],
@@ -66,8 +68,9 @@ test('phase0: refresh tools and call searchFlights', async () => {
       })
       .toMatchObject({ ok: true })
 
-    // Give humans time to see the result in the Side Panel.
-    await panelPage.waitForTimeout(3000)
+    // Give humans time to see the result in the Side Panel (skip in CI).
+    const delayMs = process.env.PW_HUMAN_DELAY_MS ? Number(process.env.PW_HUMAN_DELAY_MS) : process.env.CI ? 0 : 3000
+    if (delayMs > 0) await panelPage.waitForTimeout(delayMs)
   } finally {
     await context.close()
   }
