@@ -278,6 +278,13 @@ to: ${afterUrl || '(unknown)'}
 Action: tools have been reloaded for the new page. Do NOT answer the user task yet; re-check available tools and continue with tool calls if needed.`
 }
 
+function summarizeToolsForNotice(toolNames) {
+  const names = Array.isArray(toolNames) ? toolNames.filter((x) => typeof x === 'string' && x) : []
+  const shown = names.slice(0, 24)
+  const more = names.length > shown.length ? ` (+${names.length - shown.length} more)` : ''
+  return `tools=${names.length} [${shown.join(', ')}]${more}`
+}
+
 async function callTool() {
   const toolName = toolsSelect.value
   let params = {}
@@ -339,10 +346,13 @@ async function onChatSend(sessionStore, sessionId) {
 
     let lastKnownUrl = await getActiveTabUrl().catch(() => '')
     let navHandling = false
+    let lastToolsSig = ''
 
-    const refreshRegistryTools = async () => {
+    const refreshRegistryTools = async (opts = {}) => {
       // Retry briefly because during navigation, content scripts may not be ready yet.
-      for (let i = 0; i < 6; i += 1) {
+      const wantChangeFrom = typeof opts.changeFrom === 'string' ? opts.changeFrom : null
+      let lastNames = []
+      for (let i = 0; i < 10; i += 1) {
         const toolsMeta = await wmcpRefreshTools().catch(() => [])
         const tools = []
         for (const t of toolsMeta) {
@@ -374,9 +384,15 @@ async function onChatSend(sessionStore, sessionId) {
           })
         }
         registry.replaceAll(tools)
-        if (tools.length) return
-        await new Promise((r) => setTimeout(r, 250))
+        const names = registry.names()
+        const sig = JSON.stringify(names)
+        lastNames = names
+        lastToolsSig = sig
+        if (wantChangeFrom && sig !== wantChangeFrom) return { ok: true, sig, names }
+        if (!wantChangeFrom && tools.length) return { ok: true, sig, names }
+        await new Promise((r) => setTimeout(r, 220))
       }
+      return { ok: false, sig: lastToolsSig, names: lastNames }
     }
 
     const handleNavChange = async (beforeUrl, afterUrl) => {
@@ -387,8 +403,10 @@ async function onChatSend(sessionStore, sessionId) {
         const prev = beforeUrl || lastKnownUrl || ''
         lastKnownUrl = afterUrl
 
-        await refreshRegistryTools()
-        const notice = makeSystemNoticeForNav(prev, afterUrl)
+        const beforeSig = lastToolsSig
+        const rr = await refreshRegistryTools({ changeFrom: beforeSig })
+        const toolSummary = summarizeToolsForNotice(rr?.names ?? registry.names())
+        const notice = `${makeSystemNoticeForNav(prev, afterUrl)}\n${toolSummary}`
         await sessionStore.appendEvent(sessionId, { type: 'system.notice', text: notice, ts: Date.now() })
         emitLocal({ type: 'system.notice', text: notice })
       } finally {

@@ -14,6 +14,7 @@ export class AgentRuntime {
   #apiKey
   #systemPrompt
   #maxSteps
+  #noticeEnforcementBudget
 
   constructor(options) {
     this.#store = options.sessionStore
@@ -24,6 +25,7 @@ export class AgentRuntime {
     this.#apiKey = options.apiKey
     this.#systemPrompt = options.systemPrompt
     this.#maxSteps = typeof options.maxSteps === 'number' && options.maxSteps > 0 ? options.maxSteps : 20
+    this.#noticeEnforcementBudget = 2
   }
 
   async #callStreamed(sessionId, req) {
@@ -72,10 +74,26 @@ export class AgentRuntime {
       steps += 1
 
       const events = await this.#store.readEvents(sessionId)
+      const lastNoticeTs = Math.max(
+        -1,
+        ...events.filter((e) => e?.type === 'system.notice' && typeof e.ts === 'number').map((e) => e.ts)
+      )
+      const lastAssistantTs = Math.max(
+        -1,
+        ...events.filter((e) => e?.type === 'assistant.message' && typeof e.ts === 'number').map((e) => e.ts)
+      )
+      const noticePending = lastNoticeTs > lastAssistantTs
+
       const providerInput = rebuildResponsesInput(events)
 
       const prompt = typeof this.#systemPrompt === 'string' && this.#systemPrompt.trim() ? this.#systemPrompt : null
-      const providerInput2 = prompt ? [{ role: 'system', content: prompt }, ...providerInput] : providerInput
+      const toolNames = typeof this.#tools?.names === 'function' ? this.#tools.names() : []
+      const toolHint = `Available tool names (refreshed): ${Array.isArray(toolNames) && toolNames.length ? toolNames.join(', ') : '(none)'}`
+      const providerInput2 = [
+        ...(prompt ? [{ role: 'system', content: prompt }] : []),
+        { role: 'system', content: toolHint },
+        ...providerInput,
+      ]
 
       const toolSchemas = toolSchemasForOpenAIResponses(this.#tools)
       const streamed =
@@ -105,6 +123,19 @@ export class AgentRuntime {
       }
 
       if (out.assistantText == null) break
+
+      // If we detected navigation/tool reload, require at least one more tool attempt before final answer.
+      if (noticePending && this.#noticeEnforcementBudget > 0) {
+        this.#noticeEnforcementBudget -= 1
+        const n = {
+          type: 'system.notice',
+          text: 'Notice: tools were reloaded due to navigation. Before answering, you MUST attempt at least one relevant tool call on the new page. If no relevant tool exists, explicitly list available tool names and state why you cannot proceed.',
+          ts: now(),
+        }
+        await this.#store.appendEvent(sessionId, n)
+        yield n
+        continue
+      }
 
       const msg = { type: 'assistant.message', text: out.assistantText, ts: now() }
       await this.#store.appendEvent(sessionId, msg)
