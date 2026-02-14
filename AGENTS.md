@@ -3,8 +3,16 @@
 ## Project Overview
 这是一个 Chrome 扩展（Manifest V3 + Side Panel）的 Phase 0 验证仓库：在 WebMCP demo 页面上发现工具并调用 `execute()`，把结果展示在右侧 Side Panel。
 
+## Phase 0 Status
+- Phase 0 内核闭环已达成：手工 E2E + Playwright 自动化 E2E 都已具备（证据见 `docs/plan/v1-evidence.md`）。
+- 两条执行路径：
+  - **Canary/flags**：优先走 `navigator.modelContextTesting.listTools/executeTool`
+  - **稳定版 Chrome**：走 MAIN world `navigator.modelContext` polyfill + 调用 `tool.execute()`（不依赖 flags）
+
 ## Quick Commands (PowerShell)
 - Verify (结构校验): `powershell -File scripts/verify.ps1`
+- Install (Playwright): `npm install ; npx playwright install chromium`
+- E2E (Playwright): `npm run test:e2e`
 - Docs: PRD `docs/prd/PRD-0001-webmcp-sidecar.md`，Plan `docs/plan/v1-index.md`
 
 ## Architecture Overview
@@ -26,16 +34,23 @@ Side Panel → `chrome.runtime.sendMessage` → SW → `chrome.tabs.sendMessage`
 1) 优先：`navigator.modelContextTesting.listTools/executeTool`（无需 MAIN 注入）
 2) fallback：`window.postMessage` → MAIN bridge（hook registry + `tool.execute`）→ 回传
 
+## Code Style & Conventions
+- 扩展运行时代码优先保持 **纯原生 JS**（不引入 bundler），以便更容易定位 MV3/权限/注入问题：`extension/*.js`
+- E2E 测试使用 TypeScript（Playwright）：`tests/e2e/*.spec.ts`
+- 约定：变量 `camelCase`，常量 `UPPER_SNAKE_CASE`，尽量避免引入无必要依赖
+
 ## Safety & Conventions
 - 不要把任何 API Key / Token 写进代码、文档或提交历史；本项目 Phase 0 不需要也不允许把 secrets 传入 MAIN world。
 - 不要做批量删除（`Remove-Item -Recurse -Force` / `rm -rf`）除非用户明确要求且再次确认目标路径。
 - `extension/content_isolated.js` 与 `extension/main_bridge.js` 属于安全边界关键路径：改动后必须跑 `scripts/verify.ps1`，并在 PRD/Plan/ECN 中补齐追溯说明。
+- 不要提交本地生成物：`node_modules/`、`test-results/` 等（见 `.gitignore`）。
 
 ## Testing Strategy
 ### Phase 0
 - 结构校验（必须）: `powershell -File scripts/verify.ps1`
 - 手工 E2E（必须）：按 `docs/plan/v1-phase0-kernel.md` 在 WebMCP demo 页面验证 “Refresh → Call” 闭环。
   - `searchFlights` 已验证可跑通入参：`{"origin":"LON","destination":"NYC","tripType":"round-trip","outboundDate":"2026-02-14","inboundDate":"2026-02-21","passengers":2}`
+- 自动化 E2E（必须）: `npm run test:e2e`（默认非 headless，会停留 3 秒便于人眼观察）
 
 ## Doc Policy (Tashan loop)
 - 需求变更/新发现：先写 `docs/ecn/ECN-*.md`，再改 PRD/Plan，再改代码；禁止只改代码不留痕。

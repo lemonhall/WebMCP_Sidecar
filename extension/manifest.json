@@ -17,6 +17,12 @@
       "matches": ["https://googlechromelabs.github.io/*"],
       "js": ["content_isolated.js"],
       "run_at": "document_start"
+    },
+    {
+      "matches": ["https://googlechromelabs.github.io/*"],
+      "js": ["main_bridge.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
     }
   ],
   "action": {

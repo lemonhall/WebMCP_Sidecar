@@ -1,0 +1,14 @@
+{
+  "name": "webmcp-sidecar",
+  "private": true,
+  "version": "0.0.1",
+  "description": "WebMCP Sidecar (Chrome MV3) - Phase 0 kernel + Playwright E2E",
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "typescript": "^5.8.0"
+  },
+  "scripts": {
+    "test:e2e": "playwright test"
+  }
+}
+

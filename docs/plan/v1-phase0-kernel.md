@@ -47,7 +47,9 @@
 ## E2E（手工，Phase 0）
 
 前置：
-- Chrome Canary（或你目标版本）已启用 WebMCP 相关 flags
+- 任选其一：
+  - Chrome Canary：启用 WebMCP 相关 flags（可走 `navigator.modelContextTesting` 快路径）
+  - 普通稳定版 Chrome：无需 flags（走 polyfill + MAIN bridge 路径）
 - 打开页面：`https://googlechromelabs.github.io/webmcp-tools/demos/react-flightsearch/`
 
 步骤：

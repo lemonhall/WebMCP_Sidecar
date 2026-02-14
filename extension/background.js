@@ -13,11 +13,48 @@ chrome.runtime.onInstalled?.addListener(() => {
   chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() => {})
 })
 
+let lastHttpTabId = null
+
+function isHttpUrl(url) {
+  return typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://'))
+}
+
+async function recordIfHttpTab(tabId) {
+  try {
+    const tab = await chrome.tabs.get(tabId)
+    if (tab?.id && isHttpUrl(tab.url)) lastHttpTabId = tab.id
+  } catch (_) {
+    // ignore
+  }
+}
+
+chrome.tabs.onActivated.addListener((activeInfo) => {
+  recordIfHttpTab(activeInfo.tabId)
+})
+
+chrome.windows.onFocusChanged.addListener(async (windowId) => {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) return
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, windowId })
+    if (tab?.id) await recordIfHttpTab(tab.id)
+  } catch (_) {
+    // ignore
+  }
+})
+
 async function getActiveTabId() {
-  const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
-  const tab = tabs[0]
-  if (!tab?.id) throw new Error('No active tab')
-  return tab.id
+  if (typeof lastHttpTabId === 'number') return lastHttpTabId
+
+  const tabs = await chrome.tabs.query({ currentWindow: true })
+  const activeHttp = tabs.find((t) => t.active && isHttpUrl(t.url))
+  if (activeHttp?.id) return activeHttp.id
+
+  const anyHttp = tabs.find((t) => isHttpUrl(t.url))
+  if (anyHttp?.id) return anyHttp.id
+
+  const [active] = await chrome.tabs.query({ active: true, currentWindow: true })
+  if (!active?.id) throw new Error('No active tab')
+  return active.id
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

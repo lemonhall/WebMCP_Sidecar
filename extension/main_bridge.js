@@ -63,10 +63,42 @@
   }
 
   function tryInit() {
-    if (!('modelContext' in navigator)) return
-    const mc = navigator.modelContext
-    if (!mc) return
-    hookModelContext(mc)
+    if ('modelContext' in navigator && navigator.modelContext) {
+      hookModelContext(navigator.modelContext)
+      return
+    }
+
+    // Polyfill for stable Chrome: provide a minimal WebMCP-like surface so
+    // WebMCP-aware pages (feature-detecting `navigator.modelContext`) can register tools.
+    const poly = {
+      registerTool: function (tool) {
+        if (tool?.name) tools.set(tool.name, tool)
+      },
+      unregisterTool: function (name) {
+        tools.delete(name)
+      },
+      provideContext: function (opts) {
+        tools.clear()
+        if (opts?.tools && Array.isArray(opts.tools)) {
+          for (const t of opts.tools) {
+            if (t?.name) tools.set(t.name, t)
+          }
+        }
+      },
+      clearContext: function () {
+        tools.clear()
+      },
+    }
+
+    try {
+      Object.defineProperty(navigator, 'modelContext', {
+        value: poly,
+        configurable: true,
+      })
+    } catch (_) {
+      // If navigator is non-extensible, we can't polyfill. In that case the
+      // page won't register tools, and the Sidecar will show an empty list.
+    }
   }
 
   tryInit()

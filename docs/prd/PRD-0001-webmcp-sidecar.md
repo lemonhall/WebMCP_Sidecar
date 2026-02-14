@@ -18,6 +18,7 @@ Phase 0 目标：验证“发现工具 → 调用工具 execute → 返回结果
 - ISOLATED Content Script：MAIN bridge 的安全中继（`postMessage` 过滤 + requestId 关联）
 - MAIN world bridge：hook tool 注册 + list/call（极薄、无敏感信息）
 - Phase 0 允许存在 `navigator.modelContextTesting` 时优先走 testing API（减少注入与 CSP 风险）；无该 API 时再 fallback 到 MAIN bridge（见 ECN-0001）
+- 普通稳定版 Chrome（无 `modelContextTesting`/无原生 WebMCP）通过 MAIN world polyfill 让 demo 页面完成工具注册（见 ECN-0002）
 
 ## Non-Goals（Phase 0 明确不做）
 
@@ -57,6 +58,11 @@ Phase 0 目标：验证“发现工具 → 调用工具 execute → 返回结果
 
 - 需求：至少在 1 个已支持 WebMCP 的页面上验证闭环（优先官方 demo）。
 - 验收：按 `docs/plan/v1-phase0-kernel.md` 的手工 E2E 步骤完成一次“发现工具 + 调用工具”。
+
+### REQ-0001-007：自动化 E2E（Playwright）
+
+- 需求：提供可重复运行的 Playwright E2E，用于验证 Phase 0 核心用户流程（`Refresh → Call searchFlights`），避免长期依赖手工回归。
+- 验收：`npm run test:e2e` 在本机通过（至少 1 条用例全绿）。
 
 ## 安全与隐私约束（Phase 0）
 

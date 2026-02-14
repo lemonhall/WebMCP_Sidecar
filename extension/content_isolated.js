@@ -111,16 +111,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // Phase 0 injection: add a <script> tag for the extension resource.
 // Note: page CSP can block this approach. Phase 1 will switch to chrome.scripting.executeScript({ world: 'MAIN' }).
 ;(function ensureMainBridge() {
-  if (hasModelContextTesting()) return
-  const existing = document.documentElement.getAttribute('data-wmcp-sidecar-bridge')
-  if (existing === '1') return
-
-  const script = document.createElement('script')
-  script.src = chrome.runtime.getURL('main_bridge.js')
-  script.type = 'text/javascript'
-  script.onload = () => {
-    script.remove()
-    document.documentElement.setAttribute('data-wmcp-sidecar-bridge', '1')
-  }
-  ;(document.head || document.documentElement).appendChild(script)
+  // As of v1, MAIN bridge is loaded as a dedicated MAIN-world content script
+  // (see manifest.json `content_scripts[].world = "MAIN"`). Keep this stub
+  // to avoid older notes becoming misleading if referenced elsewhere.
+  return
 })()
