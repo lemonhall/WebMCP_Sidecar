@@ -1,10 +1,11 @@
 import { OPFSWorkspace } from './agent/opfsWorkspace.js'
-import { ensureHelloWorldSkill, createShadowWorkspaceTools } from './agent/shadowTools.js'
+import { ensureBuiltinSkills, createShadowWorkspaceTools } from './agent/shadowTools.js'
 import { ChromeSessionStore } from './agent/sessionStoreChrome.js'
 import { ToolRegistry } from './agent/toolRegistry.js'
 import { ToolRunner } from './agent/toolRunner.js'
 import { AgentRuntime } from './agent/agentRuntime.js'
 import { OpenAIResponsesProvider } from './agent/openaiResponsesProvider.js'
+import { createWebTools } from './agent/webTools.js'
 
 const STORAGE_KEY = 'settings.llm.v1'
 
@@ -35,6 +36,7 @@ function setTabActive(which) {
 const baseUrlEl = document.getElementById('baseUrl')
 const modelEl = document.getElementById('model')
 const apiKeyEl = document.getElementById('apiKey')
+const tavilyApiKeyEl = document.getElementById('tavilyApiKey')
 const saveBtn = document.getElementById('save')
 const testBtn = document.getElementById('test')
 const resultEl = document.getElementById('result')
@@ -71,19 +73,22 @@ async function loadSettings() {
   baseUrlEl.value = v.baseUrl ?? ''
   modelEl.value = v.model ?? ''
   apiKeyEl.value = v.apiKey ?? ''
+  if (tavilyApiKeyEl) tavilyApiKeyEl.value = v.tavilyApiKey ?? ''
 }
 
 async function saveSettings() {
   const baseUrl = normalizeBaseUrl(baseUrlEl.value)
   const model = String(modelEl.value ?? '').trim()
   const apiKey = String(apiKeyEl.value ?? '').trim()
+  const tavilyApiKey = String(tavilyApiKeyEl?.value ?? '').trim()
 
   await chrome.storage.local.set({
-    [STORAGE_KEY]: { baseUrl, model, apiKey, updatedAt: new Date().toISOString() },
+    [STORAGE_KEY]: { baseUrl, model, apiKey, tavilyApiKey, updatedAt: new Date().toISOString() },
   })
 
   baseUrlEl.value = baseUrl
-  setResult({ ok: true, saved: { baseUrl, model, apiKey: apiKey ? '***' : '' } })
+  if (tavilyApiKeyEl) tavilyApiKeyEl.value = tavilyApiKey
+  setResult({ ok: true, saved: { baseUrl, model, apiKey: apiKey ? '***' : '', tavilyApiKey: tavilyApiKey ? '***' : '' } })
 }
 
 async function postJson(url, apiKey, body) {
@@ -177,6 +182,7 @@ const fileAgentMessagesEl = document.getElementById('fileAgentMessages')
 const fileAgentInputEl = document.getElementById('fileAgentInput')
 const fileAgentSendBtn = document.getElementById('fileAgentSend')
 const fileAgentClearBtn = document.getElementById('fileAgentClear')
+const fileAgentCopyBtn = document.getElementById('fileAgentCopy')
 const fileAgentStatusEl = document.getElementById('fileAgentStatus')
 
 function setFmStatus(text) {
@@ -267,7 +273,7 @@ async function ensureAgentsRoot() {
 
   await fmWorkspace.mkdir('.agents/skills').catch(() => {})
   await fmWorkspace.mkdir('.agents/sessions').catch(() => {})
-  await ensureHelloWorldSkill(fmWorkspace).catch(() => {})
+  await ensureBuiltinSkills(fmWorkspace).catch(() => {})
 
   const sessionsReadme = '.agents/sessions/README.md'
   const exists = await fmWorkspace.stat(sessionsReadme).catch(() => null)
@@ -397,6 +403,77 @@ function scrollFileAgentToBottom() {
   el.scrollTop = el.scrollHeight
 }
 
+function stringifyForTranscript(value) {
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value ?? null, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+function buildTranscript(events) {
+  const lines = []
+  for (const e of events) {
+    if (!e || typeof e !== 'object') continue
+    if (e.type === 'assistant.delta') continue
+
+    if (e.type === 'system.init') {
+      lines.push(`system.init\n${e.sessionId ?? ''}`.trimEnd())
+      continue
+    }
+    if (e.type === 'system.notice') {
+      lines.push(`system.notice\n${e.text ?? ''}`.trimEnd())
+      continue
+    }
+    if (e.type === 'user.message') {
+      lines.push(`user\n${e.text ?? ''}`.trimEnd())
+      continue
+    }
+    if (e.type === 'assistant.message') {
+      lines.push(`assistant\n${e.text ?? ''}`.trimEnd())
+      continue
+    }
+    if (e.type === 'tool.use') {
+      lines.push(`tool.use: ${e.name ?? ''}\n${stringifyForTranscript(e.input ?? {})}`.trimEnd())
+      continue
+    }
+    if (e.type === 'tool.result') {
+      if (e.isError) lines.push(`tool.result (error)\n${e.errorMessage ?? 'Tool failed'}`.trimEnd())
+      else lines.push(`tool.result\n${stringifyForTranscript(e.output ?? null)}`.trimEnd())
+      continue
+    }
+    if (e.type === 'result') {
+      lines.push(`result: ${e.stopReason ?? 'end'}`)
+      continue
+    }
+
+    lines.push(`${e.type ?? 'event'}\n${stringifyForTranscript(e)}`.trimEnd())
+  }
+
+  return lines.join('\n\n')
+}
+
+async function copyToClipboard(text) {
+  if (typeof text !== 'string') throw new Error('copyToClipboard: text must be string')
+
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.setAttribute('readonly', '')
+  ta.style.position = 'fixed'
+  ta.style.top = '-9999px'
+  document.body.appendChild(ta)
+  ta.select()
+  const ok = document.execCommand('copy')
+  document.body.removeChild(ta)
+  if (!ok) throw new Error('document.execCommand(copy) failed')
+}
+
 function renderAgentEvent(e) {
   const div = document.createElement('div')
   div.className = 'msg'
@@ -456,11 +533,26 @@ async function loadLlmSettingsForAgent() {
     baseUrl: normalizeBaseUrl(v.baseUrl ?? ''),
     model: String(v.model ?? '').trim(),
     apiKey: String(v.apiKey ?? '').trim(),
+    tavilyApiKey: String(v.tavilyApiKey ?? '').trim(),
   }
 }
 
-function filterFsTools(allTools) {
-  const allow = new Set(['ListDir', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'Mkdir', 'Delete'])
+function filterFileAgentTools(allTools) {
+  // File Agent: allow filesystem tools + Skill meta tools + web tools.
+  const allow = new Set([
+    'ListDir',
+    'Read',
+    'Write',
+    'Edit',
+    'Glob',
+    'Grep',
+    'Mkdir',
+    'Delete',
+    'ListSkills',
+    'Skill',
+    'WebFetch',
+    'WebSearch',
+  ])
   return (Array.isArray(allTools) ? allTools : []).filter((t) => t?.name && allow.has(t.name))
 }
 
@@ -472,11 +564,12 @@ async function createFileAgent() {
     throw new Error('File Agent: LLM settings missing (fill baseUrl/model/apiKey in LLM tab)')
   }
 
-  const allShadowTools = createShadowWorkspaceTools({ workspace: fmWorkspace })
-  const fsTools = filterFsTools(allShadowTools)
+  const shadowTools = createShadowWorkspaceTools({ workspace: fmWorkspace })
+  const webTools = createWebTools({ tavilyApiKey: settings.tavilyApiKey })
+  const allowedTools = filterFileAgentTools([...shadowTools, ...webTools])
 
   const registry = new ToolRegistry()
-  registry.replaceAll(fsTools)
+  registry.replaceAll(allowedTools)
 
   const sessionStore = new ChromeSessionStore()
   const sessionId = await sessionStore.createSession({ metadata: { kind: 'options.files.agent' } })
@@ -492,7 +585,7 @@ async function createFileAgent() {
     model: settings.model,
     apiKey: settings.apiKey,
     systemPrompt: `You are a file management agent.
-You can ONLY use filesystem tools to manage the shadow workspace (.agents/*).
+You can ONLY use filesystem tools, Skill meta-tools, and web tools to manage the shadow workspace (.agents/*).
 Never claim you performed an action unless you actually called a tool.
 Prefer to operate under .agents/skills and .agents/sessions.
 Start by inspecting the relevant directory with ListDir when needed.`,
@@ -514,6 +607,34 @@ async function onFileAgentClear() {
   fileAgentMessagesEl.innerHTML = ''
   setFileAgentStatus('idle')
   fileAgent = null
+}
+
+async function onFileAgentCopy() {
+  try {
+    if (!fileAgent) {
+      // Fallback: copy what's currently visible.
+      const blocks = Array.from(fileAgentMessagesEl.querySelectorAll('.msg')).map((m) => {
+        const meta = m.querySelector('.meta')?.textContent ?? ''
+        const text = m.querySelector('.text')?.textContent ?? ''
+        return `${meta}\n${text}`.trimEnd()
+      })
+      const text = blocks.join('\n\n')
+      await copyToClipboard(text)
+      setFileAgentStatus(`copied (${blocks.length} blocks)`)
+      setTimeout(() => setFileAgentStatus('idle'), 900)
+      return
+    }
+
+    const { sessionStore, sessionId } = await ensureFileAgentReady()
+    const events = await sessionStore.readEvents(sessionId)
+    const text = buildTranscript(events)
+    await copyToClipboard(text)
+    setFileAgentStatus(`copied (${events.length} events)`)
+    setTimeout(() => setFileAgentStatus('idle'), 900)
+  } catch (e) {
+    setFileAgentStatus('copy failed')
+    throw e
+  }
 }
 
 async function onFileAgentSend() {
@@ -612,8 +733,12 @@ fmSaveBtn.addEventListener('click', () => saveOpenFile().catch((e) => setFmStatu
 
 fileAgentSendBtn.addEventListener('click', () => onFileAgentSend().catch(() => setFileAgentStatus('error')))
 fileAgentClearBtn.addEventListener('click', () => onFileAgentClear().catch(() => setFileAgentStatus('error')))
+fileAgentCopyBtn?.addEventListener('click', () => onFileAgentCopy().catch(() => setFileAgentStatus('copy failed')))
 fileAgentInputEl.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) onFileAgentSend().catch(() => setFileAgentStatus('error'))
+  if (e.key !== 'Enter') return
+  if (e.shiftKey) return
+  e.preventDefault()
+  onFileAgentSend().catch(() => setFileAgentStatus('error'))
 })
 
 setTabActive('llm')

@@ -3,7 +3,8 @@ import { ToolRegistry } from './agent/toolRegistry.js'
 import { ToolRunner } from './agent/toolRunner.js'
 import { AgentRuntime } from './agent/agentRuntime.js'
 import { OpenAIResponsesProvider } from './agent/openaiResponsesProvider.js'
-import { openShadowWorkspace, ensureHelloWorldSkill, createShadowWorkspaceTools } from './agent/shadowTools.js'
+import { openShadowWorkspace, ensureBuiltinSkills, createShadowWorkspaceTools } from './agent/shadowTools.js'
+import { createWebTools } from './agent/webTools.js'
 
 const STORAGE_SETTINGS_KEY = 'settings.llm.v1'
 const STORAGE_SESSION_ID_KEY = 'wmcp.agent.currentSessionId.v1'
@@ -260,6 +261,7 @@ async function loadSettings() {
     baseUrl: typeof v.baseUrl === 'string' ? v.baseUrl.trim() : '',
     model: typeof v.model === 'string' ? v.model.trim() : '',
     apiKey: typeof v.apiKey === 'string' ? v.apiKey : '',
+    tavilyApiKey: typeof v.tavilyApiKey === 'string' ? v.tavilyApiKey.trim() : '',
   }
 }
 
@@ -467,8 +469,9 @@ async function onChatSend(sessionStore, sessionId) {
     }
 
     const workspace = await openShadowWorkspace()
-    await ensureHelloWorldSkill(workspace).catch(() => {})
+    await ensureBuiltinSkills(workspace).catch(() => {})
     const shadowTools = createShadowWorkspaceTools({ workspace })
+    const webTools = createWebTools({ tavilyApiKey: settings.tavilyApiKey })
 
     let lastKnownUrl = await getActiveTabUrl().catch(() => '')
     let navHandling = false
@@ -509,7 +512,7 @@ async function onChatSend(sessionStore, sessionId) {
             },
           })
         }
-        registry.replaceAll([...shadowTools, ...tools])
+        registry.replaceAll([...shadowTools, ...webTools, ...tools])
         const names = registry.names()
         const sig = JSON.stringify(names)
         lastNames = names
@@ -656,7 +659,10 @@ fillExampleBtn.addEventListener('click', fillExample)
   chatClearBtn.addEventListener('click', () => onChatClear(sessionStore, sessionId))
   chatCopyBtn?.addEventListener('click', () => onChatCopy(sessionStore, sessionId).catch(() => setChatStatus('copy failed')))
   chatInputEl.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) onChatSend(sessionStore, sessionId)
+    if (e.key !== 'Enter') return
+    if (e.shiftKey) return
+    e.preventDefault()
+    onChatSend(sessionStore, sessionId)
   })
 
   setTabActive('chat')

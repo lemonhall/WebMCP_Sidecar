@@ -186,7 +186,7 @@
         border-radius: 10px;
         padding: 8px;
         background: #fff;
-        height: 300px;
+        height: 350px;
         overflow: auto;
       }
       .msg {
@@ -266,16 +266,19 @@
         </div>
 
         <section id="llmSection" class="panel">
-          <div class="grid">
-            <label for="baseUrl">Base URL</label>
-            <input id="baseUrl" placeholder="https://api.openai.com 或 https://host/prefix/v1" />
+      <div class="grid">
+        <label for="baseUrl">Base URL</label>
+        <input id="baseUrl" placeholder="https://api.openai.com 或 https://host/prefix/v1" />
 
-            <label for="model">Model</label>
-            <input id="model" placeholder="gpt-4.1-mini（示例）" />
+        <label for="model">Model</label>
+        <input id="model" placeholder="gpt-4.1-mini（示例）" />
 
-            <label for="apiKey">API Key</label>
-            <input id="apiKey" type="password" placeholder="sk-..." />
-          </div>
+        <label for="apiKey">API Key</label>
+        <input id="apiKey" type="password" placeholder="sk-..." />
+
+        <label for="tavilyApiKey">Tavily Key</label>
+        <input id="tavilyApiKey" type="password" placeholder="可选：用于 WebSearch（Tavily）" />
+      </div>
 
           <div class="row">
             <button id="save" type="button">Save</button>
@@ -382,9 +385,9 @@
       <aside class="sideCard">
         <div class="sideTitle">
           <h2>File Agent</h2>
-          <span class="muted">仅 Filesystem 工具</span>
+          <span class="muted">Files + Skill + Web</span>
         </div>
-        <div class="muted">ListDir/Read/Write/Edit/Glob/Grep/Mkdir/Delete（作用域：OPFS 的 `.agents/*`）</div>
+        <div class="muted">ListDir/Read/Write/Edit/Glob/Grep/Mkdir/Delete + ListSkills/Skill + WebFetch/WebSearch（工作区：OPFS 的 `.agents/*`）</div>
         <div id="fileAgentMessages" class="agentMessages"></div>
         <div class="row" style="margin-top: 0">
           <textarea id="fileAgentInput" class="editor small" placeholder="让 Agent 管理 .agents/...（例如：创建一个新 skill 模板）"></textarea>
@@ -407,6 +410,15 @@
               </svg>
             </span>
             <span class="label">Clear</span>
+          </button>
+          <button id="fileAgentCopy" class="iconBtn" type="button" aria-label="Copy">
+            <span class="icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M8 7h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z" />
+                <path d="M16 3H6a2 2 0 0 0-2 2v10" />
+              </svg>
+            </span>
+            <span class="label">Copy</span>
           </button>
           <span class="muted" id="fileAgentStatus">idle</span>
         </div>

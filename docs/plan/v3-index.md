@@ -63,6 +63,8 @@ DoD（硬口径）：
 - `docs/ecn/ECN-0009-options-file-manager-opfs-agents.md`
 - `docs/ecn/ECN-0010-files-tab-icons-and-embedded-file-agent.md`
 - `docs/ecn/ECN-0011-options-right-file-agent-and-hide-sidepanel-on-settings.md`
+- `docs/ecn/ECN-0012-bundled-builtin-skills.md`
+- `docs/ecn/ECN-0013-file-agent-skill-and-web-tools.md`
 
 ## Differences
 

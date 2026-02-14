@@ -152,6 +152,7 @@ async function listSkillNames(workspace) {
 }
 
 async function listSkills(workspace) {
+  await ensureBuiltinSkills(workspace).catch(() => {});
   const names = await listSkillNames(workspace);
   const skills = [];
   for (const name of names) {
@@ -196,6 +197,57 @@ export async function ensureHelloWorldSkill(workspace) {
 
   await workspace.writeFile(path, new TextEncoder().encode(content));
   return { ok: true, path, created: true };
+}
+
+async function ensureAgentsDirs(workspace) {
+  await workspace.mkdir(".agents").catch(() => {});
+  await workspace.mkdir(".agents/skills").catch(() => {});
+  await workspace.mkdir(".agents/sessions").catch(() => {});
+}
+
+async function readBundledText(relPath) {
+  const runtime = globalThis.chrome?.runtime;
+  const url = typeof runtime?.getURL === "function" ? runtime.getURL(relPath) : relPath;
+  if (typeof fetch !== "function") throw new Error("fetch not available");
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to read bundled resource: ${relPath} (${res.status})`);
+  return res.text();
+}
+
+async function ensureBundledSkill(workspace, name, relPath) {
+  const skillDir = `.agents/skills/${name}`;
+  const skillPath = `${skillDir}/SKILL.md`;
+  const exists = await workspace.stat(skillPath).catch(() => null);
+  if (exists?.type === "file") return { ok: true, name, path: skillPath, created: false };
+
+  await workspace.mkdir(skillDir).catch(() => {});
+  const text = await readBundledText(relPath);
+  await workspace.writeFile(skillPath, new TextEncoder().encode(text));
+  return { ok: true, name, path: skillPath, created: true };
+}
+
+export async function ensureBuiltinSkills(workspace) {
+  await ensureAgentsDirs(workspace);
+
+  await ensureHelloWorldSkill(workspace).catch(() => {});
+
+  const builtins = [
+    { name: "skill-creator", relPath: "builtin_skills/skill-creator/SKILL.md" },
+    { name: "brainstorming", relPath: "builtin_skills/brainstorming/SKILL.md" },
+    { name: "find-skills", relPath: "builtin_skills/find-skills/SKILL.md" },
+    { name: "deep-research", relPath: "builtin_skills/deep-research/SKILL.md" },
+  ];
+
+  const installed = [];
+  for (const s of builtins) {
+    try {
+      installed.push(await ensureBundledSkill(workspace, s.name, s.relPath));
+    } catch (_) {
+      // Best-effort: keep the rest of the agent working even if a bundled file is missing.
+    }
+  }
+
+  return { ok: true, installed };
 }
 
 export function createShadowWorkspaceTools(options) {
