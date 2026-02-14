@@ -328,7 +328,24 @@ async function onChatSend(sessionStore, sessionId) {
 
     const registry = new ToolRegistry()
     registry.replaceAll(tools)
-    const runner = new ToolRunner({ tools: registry, sessionStore })
+    const runner = new ToolRunner({
+      tools: registry,
+      sessionStore,
+      refreshTools: async () => {
+        const toolsMeta2 = await wmcpRefreshTools().catch(() => [])
+        const tools2 = []
+        for (const t of toolsMeta2) {
+          if (!t?.name) continue
+          tools2.push({
+            name: t.name,
+            description: t.description ?? '',
+            inputSchema: t.inputSchema,
+            run: async (input) => await wmcpCallTool(t.name, input),
+          })
+        }
+        registry.replaceAll(tools2)
+      },
+    })
     const provider = new OpenAIResponsesProvider({ baseUrl: settings.baseUrl })
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
     const tabUrl = typeof tab?.url === 'string' ? tab.url : ''

@@ -5,10 +5,12 @@ function now() {
 export class ToolRunner {
   #tools
   #store
+  #refreshTools
 
   constructor(options) {
     this.#tools = options.tools
     this.#store = options.sessionStore
+    this.#refreshTools = typeof options.refreshTools === 'function' ? options.refreshTools : null
   }
 
   #pickFlightsListToolName() {
@@ -33,6 +35,7 @@ export class ToolRunner {
       // Demo-friendly heuristic: `searchFlights` triggers navigation; the actual list often comes from `listFlights`.
       if (toolCall.name === 'searchFlights') {
         try {
+          if (this.#refreshTools) await this.#refreshTools()
           const listName = this.#pickFlightsListToolName()
           if (!listName) return
 
