@@ -46,6 +46,38 @@ function parseSseBlocks(text) {
   return out
 }
 
+async function* parseSseDataStream(body) {
+  if (!body || typeof body.getReader !== 'function') return
+  const reader = body.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+
+    // SSE events are separated by a blank line.
+    while (true) {
+      const idx = buffer.indexOf('\n\n')
+      if (idx < 0) break
+      const block = buffer.slice(0, idx)
+      buffer = buffer.slice(idx + 2)
+
+      const lines = block.split(/\n/g)
+      const dataLines = []
+      for (const line of lines) {
+        if (line.startsWith('data:')) dataLines.push(line.slice('data:'.length).trimStart())
+      }
+      if (!dataLines.length) continue
+      yield dataLines.join('\n')
+    }
+  }
+
+  // Flush remaining.
+  for (const d of parseSseBlocks(buffer)) yield d
+}
+
 export class OpenAIResponsesProvider {
   name = 'openai-responses'
   #baseUrl
@@ -200,5 +232,146 @@ export class OpenAIResponsesProvider {
       raw: obj,
       responseId: typeof obj?.id === 'string' ? obj.id : null,
     }
+  }
+
+  async *stream(req) {
+    const apiKey = req.apiKey
+    if (!apiKey) throw new Error('OpenAIResponsesProvider: apiKey is required')
+
+    const url = `${this.#baseUrl}/responses`
+    const headers = {
+      'content-type': 'application/json',
+      accept: 'text/event-stream',
+      authorization: `Bearer ${apiKey}`,
+    }
+
+    const payload = {
+      model: req.model,
+      input: Array.isArray(req.input) ? req.input : [],
+      store: typeof req.store === 'boolean' ? req.store : true,
+      stream: true,
+    }
+    if (typeof req.instructions === 'string' && req.instructions.trim()) payload.instructions = req.instructions
+    if (Array.isArray(req.tools) && req.tools.length) payload.tools = req.tools
+    if (req.previousResponseId) payload.previous_response_id = req.previousResponseId
+    if (Array.isArray(req.include) && req.include.length) payload.include = req.include
+
+    const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payload), credentials: 'omit' })
+    if (res.status >= 400) {
+      const text = await res.text().catch(() => '')
+      throw new Error(`OpenAIResponsesProvider: HTTP ${res.status}${text ? `: ${text}` : ''}`)
+    }
+
+    const contentType = (res.headers.get('content-type') ?? '').toLowerCase()
+    if (!contentType.includes('text/event-stream')) {
+      // Provider didn't stream; fall back to a one-shot JSON parse and emit a synthetic stream.
+      const text = await res.text()
+      let obj = null
+      try {
+        obj = text ? JSON.parse(text) : null
+      } catch (e) {
+        throw new Error(`OpenAIResponsesProvider.stream: invalid JSON: ${String(e?.message ?? e)}`)
+      }
+
+      const outputItems = Array.isArray(obj?.output) ? obj.output : []
+      const assistantText = parseAssistantText(outputItems)
+      if (assistantText) yield { type: 'text_delta', delta: assistantText }
+
+      for (const item of outputItems) {
+        if (!item || typeof item !== 'object') continue
+        if (item.type !== 'function_call') continue
+        const callId = item.call_id
+        const name = item.name
+        if (typeof callId !== 'string' || !callId) continue
+        if (typeof name !== 'string' || !name) continue
+        yield { type: 'tool_call', toolCall: { toolUseId: callId, name, input: parseToolArguments(item.arguments) } }
+      }
+
+      yield {
+        type: 'done',
+        responseId: typeof obj?.id === 'string' ? obj.id : null,
+        usage: obj?.usage && typeof obj.usage === 'object' ? obj.usage : undefined,
+      }
+      return
+    }
+
+    const ongoing = new Map()
+    let responseId = null
+    let usage = undefined
+
+    for await (const data of parseSseDataStream(res.body)) {
+      const trimmed = String(data ?? '').trim()
+      if (!trimmed) continue
+      if (trimmed === '[DONE]') break
+
+      let obj
+      try {
+        obj = JSON.parse(trimmed)
+      } catch {
+        continue
+      }
+      if (!obj || typeof obj !== 'object') continue
+
+      if (typeof obj.response_id === 'string' && obj.response_id) responseId = obj.response_id
+
+      const typ = obj.type
+      if (typ === 'response.created') {
+        const rid = obj.response?.id
+        if (typeof rid === 'string' && rid) responseId = rid
+        continue
+      }
+
+      if (typ === 'response.output_text.delta') {
+        const delta = obj.delta
+        if (typeof delta === 'string' && delta) yield { type: 'text_delta', delta }
+        continue
+      }
+
+      if (typ === 'response.output_item.added') {
+        const outputIndex = obj.output_index
+        const item = obj.item
+        if (typeof outputIndex === 'number' && item && typeof item === 'object' && item.type === 'function_call') {
+          const callId = item.call_id
+          const name = item.name
+          if (typeof callId === 'string' && callId && typeof name === 'string' && name) ongoing.set(outputIndex, { callId, name, arguments: '' })
+        }
+        continue
+      }
+
+      if (typ === 'response.function_call_arguments.delta') {
+        const outputIndex = obj.output_index
+        const delta = obj.delta
+        if (typeof outputIndex === 'number' && typeof delta === 'string') {
+          const st = ongoing.get(outputIndex)
+          if (st) st.arguments += delta
+        }
+        continue
+      }
+
+      if (typ === 'response.output_item.done') {
+        const outputIndex = obj.output_index
+        const item = obj.item
+        if (typeof outputIndex === 'number' && item && typeof item === 'object' && item.type === 'function_call') {
+          const st = ongoing.get(outputIndex)
+          const callId = st?.callId ?? item.call_id
+          const name = st?.name ?? item.name
+          const args = st?.arguments ?? item.arguments ?? ''
+          if (typeof callId === 'string' && callId && typeof name === 'string' && name) {
+            yield { type: 'tool_call', toolCall: { toolUseId: callId, name, input: parseToolArguments(args) } }
+          }
+        }
+        continue
+      }
+
+      if (typ === 'response.completed') {
+        const rid = obj.response?.id
+        if (typeof rid === 'string' && rid) responseId = rid
+        const u = obj.response?.usage
+        if (u && typeof u === 'object') usage = u
+        continue
+      }
+    }
+
+    yield { type: 'done', responseId, usage }
   }
 }

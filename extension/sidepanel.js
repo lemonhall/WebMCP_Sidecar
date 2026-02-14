@@ -74,6 +74,10 @@ function renderChatEvent(e) {
   } else if (e.type === 'assistant.message') {
     meta = 'assistant'
     text = e.text ?? ''
+  } else if (e.type === 'assistant.delta') {
+    meta = 'assistant.delta'
+    text = e.textDelta ?? ''
+    isTool = true
   } else if (e.type === 'tool.use') {
     meta = `tool.use: ${e.name ?? ''}`
     text = JSON.stringify(e.input ?? {}, null, 2)
@@ -84,7 +88,6 @@ function renderChatEvent(e) {
     isTool = true
   } else if (e.type === 'result') {
     meta = `result: ${e.stopReason ?? 'end'}`
-    text = e.finalText ?? ''
     isTool = true
   } else if (e.type === 'system.init') {
     meta = 'system.init'
@@ -114,7 +117,11 @@ function renderChatEvent(e) {
 async function renderChat(sessionStore, sessionId) {
   const events = await sessionStore.readEvents(sessionId)
   chatMessagesEl.innerHTML = ''
-  for (const e of events) chatMessagesEl.appendChild(renderChatEvent(e))
+  for (const e of events) {
+    // Avoid noisy history: streaming deltas are for live UI only.
+    if (e?.type === 'assistant.delta') continue
+    chatMessagesEl.appendChild(renderChatEvent(e))
+  }
   scrollChatToBottom()
 }
 
@@ -280,55 +287,6 @@ async function callTool() {
 // Chat (Phase 1) logic
 // -------------------------
 
-async function runAgentTurn(sessionStore, sessionId, userText) {
-  const settings = await loadSettings()
-  if (!settings.baseUrl || !settings.model || !settings.apiKey) {
-    await sessionStore.appendEvent(sessionId, {
-      type: 'assistant.message',
-      text: 'LLM settings missing. Click Settings and fill baseUrl / model / apiKey, then Test.',
-      ts: Date.now(),
-    })
-    return
-  }
-
-  const toolsMeta = await wmcpRefreshTools().catch(() => [])
-  const registry = new ToolRegistry()
-  for (const t of toolsMeta) {
-    if (!t?.name) continue
-    registry.set({
-      name: t.name,
-      description: t.description ?? '',
-      inputSchema: t.inputSchema,
-      run: async (input) => await wmcpCallTool(t.name, input),
-    })
-  }
-
-  const provider = new OpenAIResponsesProvider({ baseUrl: settings.baseUrl })
-  const runner = new ToolRunner({ tools: registry, sessionStore })
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-  const tabUrl = typeof tab?.url === 'string' ? tab.url : ''
-  const tabTitle = typeof tab?.title === 'string' ? tab.title : ''
-
-  const runtime = new AgentRuntime({
-    sessionStore,
-    toolRunner: runner,
-    tools: registry,
-    provider,
-    model: settings.model,
-    apiKey: settings.apiKey,
-    systemPrompt:
-      `You are a browser side-panel agent.
-Current tab title: ${tabTitle || '(unknown)'}
-Current tab URL: ${tabUrl || '(unknown)'}
-Use available tools when needed. If you call searchFlights and listFlights is available, call listFlights after searchFlights to retrieve actual results, then summarize.`,
-    maxSteps: 8,
-  })
-
-  for await (const _ev of runtime.runTurn({ sessionId, userText })) {
-    // Events are stored in sessionStore; UI will re-render.
-  }
-}
-
 async function onChatSend(sessionStore, sessionId) {
   const text = String(chatInputEl.value ?? '').trim()
   if (!text) return
@@ -339,11 +297,90 @@ async function onChatSend(sessionStore, sessionId) {
   chatClearBtn.disabled = true
 
   try {
-    await runAgentTurn(sessionStore, sessionId, text)
+    await renderChat(sessionStore, sessionId)
+
+    let liveAssistantEl = null
+    let liveText = ''
+
+    const settings = await loadSettings()
+    if (!settings.baseUrl || !settings.model || !settings.apiKey) {
+      chatMessagesEl.appendChild(
+        renderChatEvent({
+          type: 'assistant.message',
+          text: 'LLM settings missing. Click Settings and fill baseUrl / model / apiKey, then Test.',
+        })
+      )
+      scrollChatToBottom()
+      return
+    }
+
+    const toolsMeta = await wmcpRefreshTools().catch(() => [])
+    const tools = []
+    for (const t of toolsMeta) {
+      if (!t?.name) continue
+      tools.push({
+        name: t.name,
+        description: t.description ?? '',
+        inputSchema: t.inputSchema,
+        run: async (input) => await wmcpCallTool(t.name, input),
+      })
+    }
+
+    const registry = new ToolRegistry()
+    registry.replaceAll(tools)
+    const runner = new ToolRunner({ tools: registry, sessionStore })
+    const provider = new OpenAIResponsesProvider({ baseUrl: settings.baseUrl })
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+    const tabUrl = typeof tab?.url === 'string' ? tab.url : ''
+    const tabTitle = typeof tab?.title === 'string' ? tab.title : ''
+
+    const runtime = new AgentRuntime({
+      sessionStore,
+      toolRunner: runner,
+      tools: registry,
+      provider,
+      model: settings.model,
+      apiKey: settings.apiKey,
+      systemPrompt: `You are a browser side-panel agent.
+Current tab title: ${tabTitle || '(unknown)'}
+Current tab URL: ${tabUrl || '(unknown)'}
+Available tool names: ${registry.names().join(', ') || '(none)'}
+Use available tools when needed. If you call searchFlights and a list-flights tool is available, retrieve the list and summarize.`,
+      maxSteps: 8,
+    })
+
+    for await (const ev of runtime.runTurn({ sessionId, userText: text })) {
+      if (ev.type === 'assistant.delta') {
+        if (!liveAssistantEl) {
+          liveAssistantEl = renderChatEvent({ type: 'assistant.message', text: '' })
+          const meta = liveAssistantEl.querySelector('.meta')
+          if (meta) meta.textContent = 'assistant (streaming)'
+          chatMessagesEl.appendChild(liveAssistantEl)
+        }
+        liveText += ev.textDelta ?? ''
+        const txt = liveAssistantEl.querySelector('.text')
+        if (txt) txt.textContent = liveText
+        scrollChatToBottom()
+        continue
+      }
+
+      if (ev.type === 'assistant.message' && liveAssistantEl) {
+        const meta = liveAssistantEl.querySelector('.meta')
+        if (meta) meta.textContent = 'assistant'
+        const txt = liveAssistantEl.querySelector('.text')
+        if (txt) txt.textContent = ev.text ?? ''
+        liveAssistantEl = null
+        liveText = ''
+        scrollChatToBottom()
+        continue
+      }
+
+      chatMessagesEl.appendChild(renderChatEvent(ev))
+      scrollChatToBottom()
+    }
   } catch (e) {
     await sessionStore.appendEvent(sessionId, { type: 'assistant.message', text: `Agent error: ${String(e?.message ?? e)}`, ts: Date.now() })
   } finally {
-    await renderChat(sessionStore, sessionId)
     setChatStatus('idle')
     chatSendBtn.disabled = false
     chatClearBtn.disabled = false

@@ -26,6 +26,30 @@ export class AgentRuntime {
     this.#maxSteps = typeof options.maxSteps === 'number' && options.maxSteps > 0 ? options.maxSteps : 20
   }
 
+  async #callStreamed(sessionId, req) {
+    const toolCalls = []
+    const parts = []
+    let usage = undefined
+    const deltaEvents = []
+
+    const iter = this.#provider.stream(req)
+    for await (const ev of iter) {
+      if (!ev || typeof ev !== 'object') continue
+      if (ev.type === 'text_delta') {
+        parts.push(ev.delta)
+        const de = { type: 'assistant.delta', textDelta: ev.delta, ts: now() }
+        await this.#store.appendEvent(sessionId, de)
+        deltaEvents.push(de)
+      } else if (ev.type === 'tool_call') {
+        toolCalls.push(ev.toolCall)
+      } else if (ev.type === 'done') {
+        usage = ev.usage
+      }
+    }
+
+    return { out: { assistantText: parts.length ? parts.join('') : null, toolCalls, usage }, deltaEvents }
+  }
+
   async *runTurn(input) {
     const text = input.userText
     if (typeof text !== 'string') throw new Error('AgentRuntime.runTurn: userText must be string')
@@ -54,13 +78,24 @@ export class AgentRuntime {
       const providerInput2 = prompt ? [{ role: 'system', content: prompt }, ...providerInput] : providerInput
 
       const toolSchemas = toolSchemasForOpenAIResponses(this.#tools)
-      const out = await this.#provider.complete({
-        model: this.#model,
-        input: providerInput2,
-        tools: toolSchemas,
-        apiKey: this.#apiKey,
-        store: false,
-      })
+      const streamed =
+        typeof this.#provider.stream === 'function'
+          ? await this.#callStreamed(sessionId, { model: this.#model, input: providerInput2, tools: toolSchemas, apiKey: this.#apiKey, store: false })
+          : null
+
+      const out =
+        streamed?.out ??
+        (await this.#provider.complete({
+          model: this.#model,
+          input: providerInput2,
+          tools: toolSchemas,
+          apiKey: this.#apiKey,
+          store: false,
+        }))
+
+      if (streamed) {
+        for (const de of streamed.deltaEvents) yield de
+      }
 
       if (out.toolCalls?.length) {
         for (const tc of out.toolCalls) {
@@ -86,4 +121,3 @@ export class AgentRuntime {
     yield final
   }
 }
-

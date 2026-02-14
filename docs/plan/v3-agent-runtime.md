@@ -16,6 +16,7 @@
 做：
 - 引入并复用 `openagentic-sdk-ts` 的运行时抽象（session / events / tools / provider）
 - Provider：先支持 1 种 OpenAI-compatible 形态（`baseUrl/apiKey/model`）
+- Provider 支持 `stream`（SSE），并向 UI 发出 `assistant.delta`（见 ECN-0006）
 - Tool Adapter：
   - 把页面工具（来自现有 `Refresh` 列表）转成 Agent 工具定义
   - tool.run 时复用现有 Phase 0 `callTool` 消息协议
@@ -50,4 +51,3 @@
 
 - SDK 抽象与 MV3 运行环境（SW/SidePanel/Options）存在差异：优先把 runtime 放在 Side Panel 页面里（UI 线程可见、易调试）。
 - SSE/streaming 格式差异：Phase 1 先不追求“全兼容”，先把最短闭环跑通。
-

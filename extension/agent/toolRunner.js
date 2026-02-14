@@ -11,6 +11,13 @@ export class ToolRunner {
     this.#store = options.sessionStore
   }
 
+  #pickFlightsListToolName() {
+    if (this.#tools.getOptional('listFlights')) return 'listFlights'
+    const names = this.#tools.names()
+    const candidate = names.find((n) => typeof n === 'string' && /list.*flight/i.test(n))
+    return candidate ?? null
+  }
+
   async *run(sessionId, toolCall) {
     const useEvent = { type: 'tool.use', toolUseId: toolCall.toolUseId, name: toolCall.name, input: toolCall.input, ts: now() }
     await this.#store.appendEvent(sessionId, useEvent)
@@ -26,15 +33,27 @@ export class ToolRunner {
       // Demo-friendly heuristic: `searchFlights` triggers navigation; the actual list often comes from `listFlights`.
       if (toolCall.name === 'searchFlights') {
         try {
-          const listTool = this.#tools.get('listFlights')
-          const followId = `${toolCall.toolUseId}__listFlights`
-          const use2 = { type: 'tool.use', toolUseId: followId, name: 'listFlights', input: {}, ts: now() }
-          await this.#store.appendEvent(sessionId, use2)
-          yield use2
-          const out2 = await listTool.run({}, { sessionId, toolUseId: followId })
-          const ok2 = { type: 'tool.result', toolUseId: followId, output: out2, isError: false, ts: now() }
-          await this.#store.appendEvent(sessionId, ok2)
-          yield ok2
+          const listName = this.#pickFlightsListToolName()
+          if (!listName) return
+
+          const listTool = this.#tools.get(listName)
+          const followId = `${toolCall.toolUseId}__${listName}`
+
+          // Some demos need a beat after navigation/state update.
+          for (let i = 0; i < 3; i += 1) {
+            const use2 = { type: 'tool.use', toolUseId: `${followId}_${i + 1}`, name: listName, input: {}, ts: now() }
+            await this.#store.appendEvent(sessionId, use2)
+            yield use2
+
+            const out2 = await listTool.run({}, { sessionId, toolUseId: `${followId}_${i + 1}` })
+            const ok2 = { type: 'tool.result', toolUseId: `${followId}_${i + 1}`, output: out2, isError: false, ts: now() }
+            await this.#store.appendEvent(sessionId, ok2)
+            yield ok2
+
+            // Stop early if we got something non-trivial back.
+            if (out2 && (Array.isArray(out2) ? out2.length : true)) break
+            await new Promise((r) => setTimeout(r, 700))
+          }
         } catch (_) {
           // ignore follow-up failures (tool missing or still loading)
         }

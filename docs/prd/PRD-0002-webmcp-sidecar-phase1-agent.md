@@ -54,6 +54,7 @@
 
 - 需求：Side Panel 打开时默认展示 Chat 输入框与历史消息区。
 - 验收：发送一条消息后，消息追加到历史；刷新 Side Panel 仍能看到历史（至少本地持久化一次）。
+- 备注：Chat 优先提供流式体验（`assistant.delta`），避免长时间无反馈（见 ECN-0006）。
 
 ### REQ-0002-004：Tool Inspector 保留且可从主界面进入
 
@@ -67,6 +68,7 @@
   - args（JSON）
   - result/error（JSON）
 - 验收：对 demo 页 `searchFlights` 触发一次工具调用，UI 看到调用事件与结果。
+- 备注：flightsearch demo 可能需要 `searchFlights → listFlights` 的二段式获取结果（见 ECN-0006）。
 
 ### REQ-0002-006：Tool Adapter 复用现有 Phase 0 管线
 
@@ -96,4 +98,3 @@
 - modelContext/polyfill 研究：`docs/research/deep-research/WebMCP-navigator-modelContext-API-Deep-Research-2026-02-13.md`
 - SDK 参考：`https://github.com/lemonhall/openagentic-sdk-ts`
 - UI/Provider 坑参考：`https://github.com/lemonhall/Smart_Bookmark`
-

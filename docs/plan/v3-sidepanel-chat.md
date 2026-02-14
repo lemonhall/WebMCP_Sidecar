@@ -16,6 +16,7 @@
 - Side Panel 默认页为 Chat（消息列表 + 输入框 + 发送）
 - 历史消息持久化（最小实现：`chrome.storage.local`）
 - 顶部入口切到 Inspector，再可切回 Chat
+- Chat 流式渲染（`assistant.delta`），避免长时间无反馈（见 ECN-0006）
 
 不做：
 - 多会话管理（先单会话）
@@ -28,6 +29,7 @@
   - 立刻出现在消息列表
   - 重新打开 Side Panel，历史仍可见（至少最近 N 条）
 - Inspector 能正常使用且不回归 Phase 0/2（`Refresh/Call` 仍可跑通）
+- Chat 发起一次请求时，能看到 `assistant.delta` 的逐字/逐段输出（或至少有持续变化的输出）
 
 ## Verify
 
@@ -43,4 +45,3 @@
 ## Risks
 
 - Side Panel 生命周期/重建频繁：必须持久化最小状态（历史、当前 tab 绑定信息）。
-

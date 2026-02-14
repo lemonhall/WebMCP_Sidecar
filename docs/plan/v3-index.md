@@ -48,6 +48,7 @@ DoD（硬口径）：
 
 - `docs/ecn/ECN-0004-duplicate-injection-idempotent.md`
 - `docs/ecn/ECN-0005-drop-optional-permissions-all-urls.md`
+- `docs/ecn/ECN-0006-chat-streaming-and-results-followup.md`
 
 ## Differences
 
