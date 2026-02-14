@@ -37,6 +37,7 @@ DoD（硬口径）：
 - `docs/plan/v3-agent-runtime.md`
 - `docs/plan/v3-e2e-agent.md`
 - `docs/plan/v3-skill-opfs-shadow-workspace.md`
+- `docs/plan/v3-options-files-manager.md`
 
 ## Traceability Matrix（v3）
 
@@ -59,6 +60,7 @@ DoD（硬口径）：
 - `docs/ecn/ECN-0006-chat-streaming-and-results-followup.md`
 - `docs/ecn/ECN-0007-tools-reload-on-url-change.md`
 - `docs/ecn/ECN-0008-opfs-shadow-workspace-and-skill-tool.md`
+- `docs/ecn/ECN-0009-options-file-manager-opfs-agents.md`
 
 ## Differences
 

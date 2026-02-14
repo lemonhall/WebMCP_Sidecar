@@ -31,11 +31,88 @@
         font: inherit;
         padding: 8px 12px;
       }
+      .tabbar {
+        display: flex;
+        align-items: flex-end;
+        gap: 2px;
+        border-bottom: 1px solid #e5e7eb;
+        margin: 10px 0 0;
+        padding-left: 2px;
+      }
+      .tab {
+        border: 1px solid #e5e7eb;
+        border-bottom: none;
+        background: #f3f4f6;
+        color: #374151;
+        border-top-left-radius: 10px;
+        border-top-right-radius: 10px;
+        padding: 8px 12px;
+        cursor: pointer;
+        font-weight: 600;
+        margin-bottom: -1px;
+      }
+      .tab.active {
+        background: #fff;
+        color: #111827;
+        border-color: #d1d5db;
+      }
+      .panel {
+        border: 1px solid #e5e7eb;
+        border-top: none;
+        border-bottom-left-radius: 10px;
+        border-bottom-right-radius: 10px;
+        padding: 12px;
+        background: #fff;
+      }
       .row {
         display: flex;
         gap: 8px;
         align-items: center;
         margin-top: 14px;
+      }
+      .hidden {
+        display: none !important;
+      }
+      .grid2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        align-items: start;
+        margin-top: 12px;
+      }
+      .fileList {
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 8px;
+        min-height: 220px;
+        background: #fff;
+      }
+      .fileItem {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 6px 6px;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      .fileItem:hover {
+        background: #f9fafb;
+      }
+      .fileItem .kind {
+        width: 44px;
+        font-size: 12px;
+        color: #6b7280;
+      }
+      .fileItem .name {
+        flex: 1;
+        font-size: 13px;
+        word-break: break-word;
+      }
+      .editor {
+        width: 100%;
+        height: 320px;
+        font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+        padding: 10px;
       }
       pre {
         white-space: pre-wrap;
@@ -58,24 +135,62 @@
 
     <div style="height: 12px"></div>
 
-    <div class="grid">
-      <label for="baseUrl">Base URL</label>
-      <input id="baseUrl" placeholder="https://api.openai.com 或 https://host/prefix/v1" />
-
-      <label for="model">Model</label>
-      <input id="model" placeholder="gpt-4.1-mini（示例）" />
-
-      <label for="apiKey">API Key</label>
-      <input id="apiKey" type="password" placeholder="sk-..." />
+    <div class="tabbar">
+      <button id="tabLlm" class="tab active" type="button">LLM</button>
+      <button id="tabFiles" class="tab" type="button">Files</button>
+      <span style="flex: 1"></span>
+      <span class="muted" id="status" style="padding: 0 4px 8px">idle</span>
     </div>
 
-    <div class="row">
-      <button id="save">Save</button>
-      <button id="test">Test LLM connection</button>
-      <span class="muted" id="status">idle</span>
-    </div>
+    <section id="llmSection" class="panel">
+      <div class="grid">
+        <label for="baseUrl">Base URL</label>
+        <input id="baseUrl" placeholder="https://api.openai.com 或 https://host/prefix/v1" />
 
-    <pre id="result"></pre>
+        <label for="model">Model</label>
+        <input id="model" placeholder="gpt-4.1-mini（示例）" />
+
+        <label for="apiKey">API Key</label>
+        <input id="apiKey" type="password" placeholder="sk-..." />
+      </div>
+
+      <div class="row">
+        <button id="save" type="button">Save</button>
+        <button id="test" type="button">Test LLM connection</button>
+      </div>
+
+      <pre id="result"></pre>
+    </section>
+
+    <section id="filesSection" class="panel hidden">
+      <div class="muted">OPFS（Origin Private File System）中的 `.agents/*` 文件管理器（仅扩展内可见）。</div>
+      <div style="height: 8px"></div>
+
+      <div class="row" style="gap: 8px; flex-wrap: wrap">
+        <button id="fmUp" type="button">Up</button>
+        <button id="fmRefresh" type="button">Refresh</button>
+        <input id="fmPath" style="flex: 1; min-width: 260px" placeholder=".agents/skills/hello-world/SKILL.md 或 .agents/sessions/..." />
+        <button id="fmOpen" type="button">Open</button>
+        <button id="fmNewFile" type="button">New File</button>
+        <button id="fmNewDir" type="button">New Folder</button>
+        <button id="fmDelete" type="button">Delete</button>
+      </div>
+
+      <div class="grid2">
+        <div>
+          <div class="muted" id="fmCwd">cwd: (loading...)</div>
+          <div id="fmList" class="fileList"></div>
+        </div>
+        <div>
+          <div class="muted" id="fmOpenPath">open: (none)</div>
+          <textarea id="fmEditor" class="editor" placeholder="Select a file to view/edit..."></textarea>
+          <div class="row">
+            <button id="fmSave" type="button">Save</button>
+            <span class="muted" id="fmStatus">idle</span>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <script type="module" src="options.js"></script>
   </body>

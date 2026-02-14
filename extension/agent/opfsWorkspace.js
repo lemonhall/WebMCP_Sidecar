@@ -66,12 +66,29 @@ export class OPFSWorkspace {
     await writable.close();
   }
 
+  async mkdir(path) {
+    const dirPath = normalizePath(path);
+    // mkdir('') is a no-op (root)
+    await getDirHandle(this.#root, dirPath, true);
+    return { path: dirPath };
+  }
+
   async deleteFile(path) {
     const filePath = normalizePath(path);
     if (!filePath) throw new Error("OPFSWorkspace.deleteFile: path required");
     const { dir, base } = splitPath(filePath);
     const dh = await getDirHandle(this.#root, dir, false);
     await dh.removeEntry(base, { recursive: false });
+  }
+
+  async deletePath(path, options = {}) {
+    const p = normalizePath(path);
+    if (!p) throw new Error("OPFSWorkspace.deletePath: path required");
+    const recursive = Boolean(options.recursive ?? false);
+    const { dir, base } = splitPath(p);
+    const dh = await getDirHandle(this.#root, dir, false);
+    await dh.removeEntry(base, { recursive });
+    return { path: p, recursive };
   }
 
   async stat(path) {
@@ -114,4 +131,3 @@ export class OPFSWorkspace {
     return entries;
   }
 }
-
