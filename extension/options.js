@@ -104,6 +104,15 @@ async function postJson(url, apiKey, body) {
   return { ok: res.ok, status: res.status, statusText: res.statusText, json, text }
 }
 
+function errorLooksLikeInputMustBeList(errorJson) {
+  if (!errorJson) return false
+  const detail = typeof errorJson.detail === 'string' ? errorJson.detail : ''
+  const message = typeof errorJson.message === 'string' ? errorJson.message : ''
+  const innerMessage = typeof errorJson.error?.message === 'string' ? errorJson.error.message : ''
+  const hay = `${detail}\n${message}\n${innerMessage}`.toLowerCase()
+  return hay.includes('input must be a list') || hay.includes('input must be an array')
+}
+
 async function testLLM() {
   setStatus('testing...')
   setResult('')
@@ -133,24 +142,33 @@ async function testLLM() {
   }
 
   const responsesUrl = buildOpenAICompatibleUrl(baseUrl, '/v1/responses')
-  const body = {
-    model,
-    input: 'ping',
-    stream: false,
-  }
+  const attempts = [
+    { label: 'input:string', body: { model, input: 'ping', stream: false } },
+    { label: 'input:[string]', body: { model, input: ['ping'], stream: false } },
+    { label: 'input:[{role,content}]', body: { model, input: [{ role: 'user', content: 'ping' }], stream: false } },
+    {
+      label: 'input:[{role,content:[input_text]}]',
+      body: { model, input: [{ role: 'user', content: [{ type: 'input_text', text: 'ping' }] }], stream: false },
+    },
+  ]
 
-  const r1 = await postJson(responsesUrl, apiKey, body)
-  if (r1.ok) {
-    setStatus('ok')
-    setResult({ ok: true, endpoint: '/v1/responses', status: r1.status, json: r1.json ?? r1.text })
-    return
+  let r1 = null
+  for (const a of attempts) {
+    const r = await postJson(responsesUrl, apiKey, a.body)
+    r1 = { ...r, attempt: a.label }
+    if (r.ok) {
+      setStatus('ok')
+      setResult({ ok: true, endpoint: '/v1/responses', status: r.status, attempt: a.label, json: r.json ?? r.text })
+      return
+    }
+    if (r.status === 400 && !errorLooksLikeInputMustBeList(r.json)) break
   }
 
   // Best-effort fallback for OpenAI-compatible providers that haven't implemented /v1/responses yet.
-  const shouldFallback = r1.status === 404 || r1.status === 405
+  const shouldFallback = r1?.status === 404 || r1?.status === 405
   if (!shouldFallback) {
     setStatus('error')
-    setResult({ ok: false, endpoint: '/v1/responses', status: r1.status, error: r1.json ?? r1.text })
+    setResult({ ok: false, endpoint: '/v1/responses', status: r1?.status, attempt: r1?.attempt, error: r1?.json ?? r1?.text })
     return
   }
 
