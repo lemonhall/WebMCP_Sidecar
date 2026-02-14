@@ -41,6 +41,66 @@ let currentTools = []
 
 const MAX_TOOL_RESULT_LINES = 10
 
+function extractSkillDirectives(text) {
+  const s = String(text ?? '')
+  const out = new Set()
+  // Accept "$skill" even when it is glued to CJK text (e.g. "用$deep-research帮我...").
+  // Still avoid matching "$100" by requiring the first char to be a letter.
+  const rx = /(?:^|[^a-zA-Z0-9-])\$([a-zA-Z][a-zA-Z0-9-]{0,63})\b/g
+  let m
+  while ((m = rx.exec(s))) {
+    const name = String(m[1] ?? '').trim().toLowerCase()
+    if (name) out.add(name)
+  }
+  return Array.from(out)
+}
+
+function isSkillsListRequest(text) {
+  const s = String(text ?? '').toLowerCase()
+  if (!s) return false
+  const hasSkillsWord = s.includes('技能') || s.includes('skill')
+  if (!hasSkillsWord) return false
+  // Heuristic: user is asking for an inventory/list of skills.
+  const wantsList =
+    s.includes('有什么') ||
+    s.includes('有哪些') ||
+    s.includes('列出') ||
+    s.includes('列表') ||
+    s.includes('可用') ||
+    s.includes('available') ||
+    s.includes('list') ||
+    s.includes('show')
+  return wantsList
+}
+
+function getMarkdownRenderer() {
+  const fn = globalThis.markdownit
+  if (typeof fn !== 'function') return null
+  return fn({ html: false, linkify: true, breaks: true })
+}
+
+function hardenLinks(container) {
+  try {
+    for (const a of container.querySelectorAll('a')) {
+      a.setAttribute('target', '_blank')
+      a.setAttribute('rel', 'nofollow noopener noreferrer')
+    }
+  } catch (_) {
+    // ignore
+  }
+}
+
+function renderMarkdownInto(el, text) {
+  const md = getMarkdownRenderer()
+  if (!md) {
+    el.textContent = text
+    return
+  }
+  el.classList.add('md')
+  el.innerHTML = md.render(String(text ?? ''))
+  hardenLinks(el)
+}
+
 function setStatus(text) {
   statusEl.textContent = text
 }
@@ -153,7 +213,8 @@ function renderChatEvent(e) {
 
   const textEl = document.createElement('div')
   textEl.className = 'text'
-  textEl.textContent = text
+  if (e.type === 'user.message' || e.type === 'assistant.message') renderMarkdownInto(textEl, text)
+  else textEl.textContent = text
 
   div.appendChild(metaEl)
   div.appendChild(textEl)
@@ -435,8 +496,10 @@ async function callTool() {
 // -------------------------
 
 async function onChatSend(sessionStore, sessionId) {
-  const text = String(chatInputEl.value ?? '').trim()
+  let text = String(chatInputEl.value ?? '').trim()
   if (!text) return
+  const skillNames = extractSkillDirectives(text)
+  const wantsSkillsList = isSkillsListRequest(text) && skillNames.length === 0
   chatInputEl.value = ''
 
   setChatStatus('running...')
@@ -450,6 +513,43 @@ async function onChatSend(sessionStore, sessionId) {
     let liveAssistantEl = null
     let liveText = ''
 
+    const registry = new ToolRegistry()
+    const emitLocal = (ev) => {
+      chatMessagesEl.appendChild(renderChatEvent(ev))
+      scrollChatToBottom()
+    }
+
+    const workspace = await openShadowWorkspace()
+    await ensureBuiltinSkills(workspace).catch(() => {})
+    const shadowTools = createShadowWorkspaceTools({ workspace })
+
+    if (wantsSkillsList) {
+      // Skills inventory is deterministic and doesn't require LLM settings.
+      const runner = new ToolRunner({ tools: registry, sessionStore, contextFactory: async () => ({ workspace }) })
+      registry.replaceAll(shadowTools)
+      const toolUseId = `pre_listskills_${Date.now()}_${Math.random().toString(16).slice(2)}`
+      for await (const ev of runner.run(sessionId, { toolUseId, name: 'ListSkills', input: {} })) emitLocal(ev)
+
+      const skills = (await sessionStore.readEvents(sessionId))
+        .filter((e) => e?.type === 'tool.result' && e.toolUseId === toolUseId && !e.isError)
+        .map((e) => e.output)
+        .filter(Boolean)[0]
+
+      const list = Array.isArray(skills?.skills) ? skills.skills : []
+      const lines = list.map((x) => `- ${x.name}${x.description ? ` — ${x.description}` : ''}`)
+      const answer = lines.length
+        ? `当前可用技能（${list.length} 个）：\n${lines.join('\n')}\n\n用法：在消息里写 \`$<skill-name>\`（例如：\`$deep-research\`）。`
+        : '当前没有可用技能（shadow workspace 为空）。'
+
+      const msg = { type: 'assistant.message', text: answer, ts: Date.now() }
+      await sessionStore.appendEvent(sessionId, msg)
+      emitLocal(msg)
+      const final = { type: 'result', finalText: answer, stopReason: 'end', ts: Date.now() }
+      await sessionStore.appendEvent(sessionId, final)
+      emitLocal(final)
+      return
+    }
+
     const settings = await loadSettings()
     if (!settings.baseUrl || !settings.model || !settings.apiKey) {
       chatMessagesEl.appendChild(
@@ -462,15 +562,14 @@ async function onChatSend(sessionStore, sessionId) {
       return
     }
 
-    const registry = new ToolRegistry()
-    const emitLocal = (ev) => {
-      chatMessagesEl.appendChild(renderChatEvent(ev))
-      scrollChatToBottom()
+    if (skillNames.length) {
+      const notice = `Skill directive detected: ${skillNames.join(
+        ', '
+      )}. You MUST call "Skill" for each (or call "ListSkills" if not found) before answering.`
+      await sessionStore.appendEvent(sessionId, { type: 'system.notice', text: notice, ts: Date.now() })
+      emitLocal({ type: 'system.notice', text: notice })
     }
 
-    const workspace = await openShadowWorkspace()
-    await ensureBuiltinSkills(workspace).catch(() => {})
-    const shadowTools = createShadowWorkspaceTools({ workspace })
     const webTools = createWebTools({ tavilyApiKey: settings.tavilyApiKey })
 
     let lastKnownUrl = await getActiveTabUrl().catch(() => '')
@@ -545,6 +644,14 @@ async function onChatSend(sessionStore, sessionId) {
 
     await refreshRegistryTools()
     const runner = new ToolRunner({ tools: registry, sessionStore, contextFactory: async () => ({ workspace }) })
+
+    // Deterministically preload Skill documents when user explicitly requests "$<skill-name>".
+    // This avoids relying on the model to remember to call Skill first.
+    for (const sn of skillNames) {
+      const toolUseId = `pre_skill_${sn}_${Date.now()}_${Math.random().toString(16).slice(2)}`
+      for await (const ev of runner.run(sessionId, { toolUseId, name: 'Skill', input: { name: sn } })) emitLocal(ev)
+    }
+
     const provider = new OpenAIResponsesProvider({ baseUrl: settings.baseUrl })
     const tab = await getActiveHttpTab().catch(() => ({ url: '', title: '' }))
     const tabUrl = typeof tab?.url === 'string' ? tab.url : ''
@@ -564,7 +671,8 @@ Current tab URL: ${tabUrl || '(unknown)'}
 Hard rules:
 - Do NOT invent tools or capabilities. Only use tools that exist in "Available tool names (refreshed)".
 - If the user asks "有什么技能 / skills / SKILL", call "ListSkills" and answer with the returned skill names + descriptions.
-- Only call "Skill" when the user explicitly asks to load a specific skill by name (or after you ask a clarifying question).
+- If the user message includes a "$<skill-name>" directive (example: "$deep-research"), treat that as an explicit request to load that skill: call "Skill" with that name first, then follow its instructions.
+- Only call "Skill" in other cases when the user explicitly asks to load a specific skill by name (or after you ask a clarifying question).
 
 Notes:
 - Skills live in the shadow workspace: .agents/skills/<skill-name>/SKILL.md
@@ -597,7 +705,7 @@ Notes:
         const meta = liveAssistantEl.querySelector('.meta')
         if (meta) meta.textContent = 'assistant'
         const txt = liveAssistantEl.querySelector('.text')
-        if (txt) txt.textContent = ev.text ?? ''
+        if (txt) renderMarkdownInto(txt, ev.text ?? '')
         liveAssistantEl = null
         liveText = ''
         scrollChatToBottom()

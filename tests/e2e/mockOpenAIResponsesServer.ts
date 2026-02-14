@@ -94,7 +94,9 @@ async function sendAssistantTextStream(res: http.ServerResponse, text: string) {
   res.end()
 }
 
-export async function startMockOpenAIResponsesServer(options: { script?: "flightsearch" | "skill-hello" } = {}) {
+export async function startMockOpenAIResponsesServer(
+  options: { script?: "flightsearch" | "skill-hello" | "webfetch"; localUrl?: string } = {}
+) {
   const server = http.createServer(async (req, res) => {
     try {
       setCors(res)
@@ -130,6 +132,26 @@ export async function startMockOpenAIResponsesServer(options: { script?: "flight
         return;
       }
 
+      if (script === "webfetch") {
+        const localUrl =
+          typeof options.localUrl === "string" && options.localUrl.trim()
+            ? options.localUrl.trim()
+            : typeof (body as any)?.metadata?.localUrl === "string"
+              ? String((body as any).metadata.localUrl)
+              : "";
+        if (!localUrl) {
+          res.statusCode = 400;
+          res.end("missing metadata.localUrl");
+          return;
+        }
+        if (!done.has("WebFetch")) {
+          await sendToolCallStream(res, "WebFetch", "call_webfetch_1", { url: localUrl, allow_private_networks: true });
+          return;
+        }
+        await sendAssistantTextStream(res, "## WebFetch OK\n\n- 已成功获取本地 URL 内容。\n");
+        return;
+      }
+
       // flightsearch
       if (!done.has("searchFlights")) {
         await sendToolCallStream(res, "searchFlights", "call_searchFlights_1", {
@@ -148,7 +170,7 @@ export async function startMockOpenAIResponsesServer(options: { script?: "flight
         return;
       }
 
-      await sendAssistantTextStream(res, "已完成：已在结果页调用 listFlights 读取航班列表，并可按价格/时长/中转次数做进一步筛选与总结。")
+      await sendAssistantTextStream(res, "## 已完成\n\n- 已在结果页调用 `listFlights` 读取航班列表\n- 可按价格/时长/中转次数进一步筛选与总结\n")
     } catch (e: any) {
       res.statusCode = 500
       res.setHeader('content-type', 'application/json; charset=utf-8')

@@ -49,11 +49,18 @@ test('options: file manager can create/open/edit .agents file', async () => {
     await optionsPage.getByRole('button', { name: 'Save' }).click()
     await expect(optionsPage.locator('#fmStatus')).toContainText('saved', { timeout: 30_000 })
 
+    // Markdown preview should render for .md files.
+    await expect(optionsPage.locator('#fmPreview')).toBeVisible({ timeout: 30_000 })
+    await expect(optionsPage.locator('#fmPreview')).toContainText('E2E Skill', { timeout: 30_000 })
+
     // Re-open and assert content persisted.
     await optionsPage.locator('#fmEditor').fill('') // clear
     await optionsPage.getByRole('button', { name: 'Open' }).click()
     await expect(optionsPage.locator('#fmOpenPath')).toContainText(filePath, { timeout: 30_000 })
     await expect(optionsPage.locator('#fmEditor')).toHaveValue(/# E2E Skill/, { timeout: 30_000 })
+
+    // Preview should update after edits.
+    await expect(optionsPage.locator('#fmPreview')).toBeVisible({ timeout: 30_000 })
   } finally {
     await context.close()
   }

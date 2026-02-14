@@ -50,7 +50,7 @@ test('phase1: chat agent calls tools across navigation', async () => {
     // Keep the demo tab as "active" (avoid focusing the panel tab), otherwise
     // chrome.tabs.query({active:true}) in the sidepanel may see the extension URL.
     const prompt =
-      '请调用 searchFlights，参数用 {"origin":"LON","destination":"NYC","tripType":"round-trip","outboundDate":"2026-02-14","inboundDate":"2026-02-21","passengers":2}，然后总结结果。'
+      '$deep-research 请调用 searchFlights，参数用 {"origin":"LON","destination":"NYC","tripType":"round-trip","outboundDate":"2026-02-14","inboundDate":"2026-02-21","passengers":2}，然后总结结果。'
 
     await panelPage.evaluate((t) => {
       const el = document.getElementById('chatInput') as HTMLTextAreaElement | null
@@ -59,10 +59,18 @@ test('phase1: chat agent calls tools across navigation', async () => {
     await panelPage.evaluate(() => (document.getElementById('chatSend') as HTMLButtonElement | null)?.click())
 
     const chatText = panelPage.locator('#chatMessages')
+    await expect(chatText).toContainText('Skill directive detected: deep-research', { timeout: 30_000 })
+    await expect(chatText).toContainText('tool.use: Skill', { timeout: 30_000 })
+    await expect(chatText).toContainText('## Skill: deep-research', { timeout: 30_000 })
     await expect(chatText).toContainText('tool.use: searchFlights', { timeout: 30_000 })
     await expect(chatText).toContainText('Notice: active tab navigated.', { timeout: 30_000 })
     await expect(chatText).toContainText('tool.use: listFlights', { timeout: 30_000 })
-    await expect(chatText).toContainText('已完成：已在结果页调用 listFlights', { timeout: 30_000 })
+    await expect(chatText).toContainText('已完成', { timeout: 30_000 })
+
+    // Markdown should be rendered for assistant/user messages.
+    await expect(panelPage.locator('.msg.role-assistant .text.md h2', { hasText: '已完成' }).first()).toBeVisible({
+      timeout: 30_000,
+    })
 
     // Ensure we didn't "double call" listFlights due to notice enforcement.
     const listCount = await panelPage.locator('.msg .meta', { hasText: 'tool.use: listFlights' }).count()
@@ -84,4 +92,3 @@ test('phase1: chat agent calls tools across navigation', async () => {
     await mock.close()
   }
 })
-

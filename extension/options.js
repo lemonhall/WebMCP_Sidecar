@@ -174,6 +174,7 @@ const fmSaveBtn = document.getElementById('fmSave')
 const fmCwdEl = document.getElementById('fmCwd')
 const fmListEl = document.getElementById('fmList')
 const fmEditorEl = document.getElementById('fmEditor')
+const fmPreviewEl = document.getElementById('fmPreview')
 const fmOpenPathEl = document.getElementById('fmOpenPath')
 const fmStatusEl = document.getElementById('fmStatus')
 
@@ -187,6 +188,68 @@ const fileAgentStatusEl = document.getElementById('fileAgentStatus')
 
 function setFmStatus(text) {
   fmStatusEl.textContent = text
+}
+
+function extractSkillDirectives(text) {
+  const s = String(text ?? '')
+  const out = new Set()
+  // Accept "$skill" even when it is glued to CJK text (e.g. "用$deep-research帮我...").
+  // Still avoid matching "$100" by requiring the first char to be a letter.
+  const rx = /(?:^|[^a-zA-Z0-9-])\$([a-zA-Z][a-zA-Z0-9-]{0,63})\b/g
+  let m
+  while ((m = rx.exec(s))) {
+    const name = String(m[1] ?? '').trim().toLowerCase()
+    if (name) out.add(name)
+  }
+  return Array.from(out)
+}
+
+function isSkillsListRequest(text) {
+  const s = String(text ?? '').toLowerCase()
+  if (!s) return false
+  const hasSkillsWord = s.includes('技能') || s.includes('skill')
+  if (!hasSkillsWord) return false
+  const wantsList =
+    s.includes('有什么') ||
+    s.includes('有哪些') ||
+    s.includes('列出') ||
+    s.includes('列表') ||
+    s.includes('可用') ||
+    s.includes('available') ||
+    s.includes('list') ||
+    s.includes('show')
+  return wantsList
+}
+
+let _md = null
+function getMarkdownRenderer() {
+  if (_md) return _md
+  const fn = globalThis.markdownit
+  if (typeof fn !== 'function') return null
+  _md = fn({ html: false, linkify: true, breaks: true })
+  return _md
+}
+
+function hardenLinks(container) {
+  try {
+    for (const a of container.querySelectorAll('a')) {
+      a.setAttribute('target', '_blank')
+      a.setAttribute('rel', 'nofollow noopener noreferrer')
+    }
+  } catch (_) {
+    // ignore
+  }
+}
+
+function renderMarkdownInto(el, text) {
+  const md = getMarkdownRenderer()
+  if (!md) {
+    el.textContent = text
+    return
+  }
+  el.classList.add('md')
+  el.innerHTML = md.render(String(text ?? ''))
+  hardenLinks(el)
 }
 
 function normalizePath(raw) {
@@ -216,8 +279,32 @@ function joinPath(a, b) {
 }
 
 let fmWorkspace = null
-let fmCwd = '.agents'
+let fmCwd = ''
 let fmOpenPath = ''
+let fmPreviewTimer = null
+
+function isMarkdownPath(path) {
+  const p = String(path ?? '').toLowerCase()
+  return p.endsWith('.md') || p.endsWith('.markdown')
+}
+
+function updateFmPreviewNow() {
+  if (!fmPreviewEl) return
+  if (!fmOpenPath || !isMarkdownPath(fmOpenPath)) {
+    fmPreviewEl.classList.add('hidden')
+    fmPreviewEl.innerHTML = ''
+    return
+  }
+  fmPreviewEl.classList.remove('hidden')
+  renderMarkdownInto(fmPreviewEl, String(fmEditorEl.value ?? ''))
+}
+
+function scheduleFmPreviewUpdate() {
+  if (!fmPreviewEl) return
+  if (!fmOpenPath || !isMarkdownPath(fmOpenPath)) return
+  if (fmPreviewTimer) clearTimeout(fmPreviewTimer)
+  fmPreviewTimer = setTimeout(() => updateFmPreviewNow(), 160)
+}
 
 function svgFolder() {
   return `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h6l2 2h10v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>`
@@ -310,6 +397,7 @@ async function openFile(path) {
   fmEditorEl.value = new TextDecoder().decode(bytes)
   fmOpenPath = p
   fmOpenPathEl.textContent = `open: ${p}`
+  updateFmPreviewNow()
   setFmStatus('idle')
 }
 
@@ -371,6 +459,7 @@ async function deletePath(path) {
     fmOpenPath = ''
     fmOpenPathEl.textContent = 'open: (none)'
     fmEditorEl.value = ''
+    updateFmPreviewNow()
   }
   await refreshFm()
   setFmStatus('idle')
@@ -379,10 +468,14 @@ async function deletePath(path) {
 async function initFileManager() {
   try {
     fmWorkspace = await OPFSWorkspace.open()
-    fmCwd = '.agents'
+    fmCwd = ''
     fmOpenPath = ''
     fmOpenPathEl.textContent = 'open: (none)'
     fmEditorEl.value = ''
+    if (fmPreviewEl) {
+      fmPreviewEl.classList.add('hidden')
+      fmPreviewEl.innerHTML = ''
+    }
     await refreshFm()
   } catch (e) {
     fmWorkspace = null
@@ -390,6 +483,10 @@ async function initFileManager() {
     fmListEl.innerHTML = ''
     fmEditorEl.value = ''
     fmOpenPathEl.textContent = 'open: (none)'
+    if (fmPreviewEl) {
+      fmPreviewEl.classList.add('hidden')
+      fmPreviewEl.innerHTML = ''
+    }
     setFmStatus(`error: ${String(e?.message ?? e)}`)
   }
 }
@@ -494,6 +591,10 @@ function renderAgentEvent(e) {
     meta = 'assistant.delta'
     text = e.textDelta ?? ''
     isTool = true
+  } else if (e.type === 'system.notice') {
+    meta = 'system.notice'
+    text = e.text ?? ''
+    isTool = true
   } else if (e.type === 'tool.use') {
     meta = `tool.use: ${e.name ?? ''}`
     text = JSON.stringify(e.input ?? {}, null, 2)
@@ -519,7 +620,8 @@ function renderAgentEvent(e) {
 
   const textEl = document.createElement('div')
   textEl.className = 'text'
-  textEl.textContent = text
+  if (e.type === 'user.message' || e.type === 'assistant.message') renderMarkdownInto(textEl, text)
+  else textEl.textContent = text
 
   div.appendChild(metaEl)
   div.appendChild(textEl)
@@ -586,13 +688,14 @@ async function createFileAgent() {
     apiKey: settings.apiKey,
     systemPrompt: `You are a file management agent.
 You can ONLY use filesystem tools, Skill meta-tools, and web tools to manage the shadow workspace (.agents/*).
+If the user message includes a "$<skill-name>" directive (example: "$skill-creator"), call "Skill" with that name first and then follow its instructions.
 Never claim you performed an action unless you actually called a tool.
 Prefer to operate under .agents/skills and .agents/sessions.
 Start by inspecting the relevant directory with ListDir when needed.`,
     maxSteps: 10,
   })
 
-  return { sessionStore, sessionId, runtime }
+  return { sessionStore, sessionId, runtime, runner }
 }
 
 let fileAgent = null
@@ -638,8 +741,10 @@ async function onFileAgentCopy() {
 }
 
 async function onFileAgentSend() {
-  const text = String(fileAgentInputEl.value ?? '').trim()
+  let text = String(fileAgentInputEl.value ?? '').trim()
   if (!text) return
+  const skillNames = extractSkillDirectives(text)
+  const wantsSkillsList = isSkillsListRequest(text) && skillNames.length === 0
   fileAgentInputEl.value = ''
 
   setFileAgentStatus('running...')
@@ -650,8 +755,57 @@ async function onFileAgentSend() {
   let liveText = ''
 
   try {
+    if (wantsSkillsList) {
+      // Skills inventory is deterministic and doesn't require LLM settings.
+      if (!fmWorkspace) await initFileManager()
+      if (!fmWorkspace) throw new Error('File Agent: OPFS workspace not available')
+      await ensureBuiltinSkills(fmWorkspace).catch(() => {})
+      const shadowTools = createShadowWorkspaceTools({ workspace: fmWorkspace })
+      const registry = new ToolRegistry()
+      registry.replaceAll(shadowTools)
+      const sessionStore = new ChromeSessionStore()
+      const sessionId = await sessionStore.createSession({ metadata: { kind: 'options.files.agent.quick' } })
+      const runner = new ToolRunner({ tools: registry, sessionStore, contextFactory: async () => ({ workspace: fmWorkspace }) })
+
+      const toolUseId = `pre_listskills_${Date.now()}_${Math.random().toString(16).slice(2)}`
+      for await (const ev of runner.run(sessionId, { toolUseId, name: 'ListSkills', input: {} })) {
+        fileAgentMessagesEl.appendChild(renderAgentEvent(ev))
+        scrollFileAgentToBottom()
+      }
+
+      const events = await sessionStore.readEvents(sessionId)
+      const resultEv = events.find((e) => e?.type === 'tool.result' && e.toolUseId === toolUseId && !e.isError)
+      const list = Array.isArray(resultEv?.output?.skills) ? resultEv.output.skills : []
+      const lines = list.map((x) => `- ${x.name}${x.description ? ` — ${x.description}` : ''}`)
+      const answer = lines.length
+        ? `当前可用技能（${list.length} 个）：\n${lines.join('\n')}\n\n用法：在消息里写 \`$<skill-name>\`（例如：\`$deep-research\`）。`
+        : '当前没有可用技能（shadow workspace 为空）。'
+      fileAgentMessagesEl.appendChild(renderAgentEvent({ type: 'assistant.message', text: answer }))
+      scrollFileAgentToBottom()
+      return
+    }
+
     await ensureFileAgentReady()
-    const { sessionStore, sessionId, runtime } = fileAgent
+    const { sessionStore, sessionId, runtime, runner } = fileAgent
+
+    if (skillNames.length) {
+      const notice = `Skill directive detected: ${skillNames.join(
+        ', '
+      )}. You MUST call "Skill" for each (or call "ListSkills" if not found) before answering.`
+      await sessionStore.appendEvent(sessionId, { type: 'system.notice', text: notice, ts: Date.now() })
+      fileAgentMessagesEl.appendChild(renderAgentEvent({ type: 'system.notice', text: notice }))
+      scrollFileAgentToBottom()
+    }
+
+    // Deterministically preload Skill documents when user explicitly requests "$<skill-name>".
+    for (const sn of skillNames) {
+      const toolUseId = `pre_skill_${sn}_${Date.now()}_${Math.random().toString(16).slice(2)}`
+      for await (const ev of runner.run(sessionId, { toolUseId, name: 'Skill', input: { name: sn } })) {
+        fileAgentMessagesEl.appendChild(renderAgentEvent(ev))
+        scrollFileAgentToBottom()
+      }
+    }
+
     for await (const ev of runtime.runTurn({ sessionId, userText: text })) {
       if (ev.type === 'assistant.delta') {
         if (!liveAssistantEl) {
@@ -671,7 +825,7 @@ async function onFileAgentSend() {
         const meta = liveAssistantEl.querySelector('.meta')
         if (meta) meta.textContent = 'assistant'
         const txt = liveAssistantEl.querySelector('.text')
-        if (txt) txt.textContent = ev.text ?? ''
+        if (txt) renderMarkdownInto(txt, ev.text ?? '')
         liveAssistantEl = null
         liveText = ''
         scrollFileAgentToBottom()
@@ -730,6 +884,7 @@ fmNewFileBtn.addEventListener('click', () => newFile(fmPathEl.value).catch((e) =
 fmNewDirBtn.addEventListener('click', () => newDir(fmPathEl.value).catch((e) => setFmStatus(String(e?.message ?? e))))
 fmDeleteBtn.addEventListener('click', () => deletePath(fmPathEl.value).catch((e) => setFmStatus(String(e?.message ?? e))))
 fmSaveBtn.addEventListener('click', () => saveOpenFile().catch((e) => setFmStatus(String(e?.message ?? e))))
+fmEditorEl.addEventListener('input', () => scheduleFmPreviewUpdate())
 
 fileAgentSendBtn.addEventListener('click', () => onFileAgentSend().catch(() => setFileAgentStatus('error')))
 fileAgentClearBtn.addEventListener('click', () => onFileAgentClear().catch(() => setFileAgentStatus('error')))

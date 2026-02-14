@@ -173,6 +173,10 @@
         height: 320px;
         font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
         padding: 10px;
+        box-sizing: border-box;
+      }
+      #fmEditor {
+        width: calc(100% - 10px);
       }
       .editor.small {
         height: 110px;
@@ -234,6 +238,35 @@
         padding: 10px;
         border-radius: 6px;
         margin-top: 12px;
+      }
+      .md {
+        white-space: normal;
+      }
+      .md p {
+        margin: 0 0 8px;
+      }
+      .md pre {
+        white-space: pre;
+        overflow: auto;
+      }
+      .md code {
+        font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+      }
+      .md a {
+        color: #2563eb;
+        text-decoration: none;
+      }
+      .md a:hover {
+        text-decoration: underline;
+      }
+      .preview {
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 10px;
+        background: #fff;
+        height: 200px;
+        overflow: auto;
+        margin-top: 10px;
       }
       .muted {
         color: #666;
@@ -364,6 +397,7 @@
             <div>
               <div class="muted" id="fmOpenPath">open: (none)</div>
               <textarea id="fmEditor" class="editor" placeholder="Select a file to view/edit..."></textarea>
+              <div id="fmPreview" class="preview hidden"></div>
               <div class="row">
                 <button id="fmSave" class="iconBtn" type="button" aria-label="Save">
                   <span class="icon" aria-hidden="true">
@@ -425,6 +459,7 @@
       </aside>
     </div>
 
+    <script src="vendor/markdown-it.min.js"></script>
     <script type="module" src="options.js"></script>
   </body>
 </html>
