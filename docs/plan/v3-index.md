@@ -34,8 +34,8 @@ DoD（硬口径）：
 
 | Req ID | v3 Plan | 验证 | 状态 |
 |---|---|---|---|
-| REQ-0002-001 | v3-settings-options | 手工 + v3 E2E | todo |
-| REQ-0002-002 | v3-settings-options | 手工 + v3 E2E | todo |
+| REQ-0002-001 | v3-settings-options | 手工 | done |
+| REQ-0002-002 | v3-settings-options | 手工 | done |
 | REQ-0002-003 | v3-sidepanel-chat | 手工 + v3 E2E | todo |
 | REQ-0002-004 | v3-sidepanel-chat | 手工 | todo |
 | REQ-0002-005 | v3-agent-runtime | 手工 + v3 E2E | todo |

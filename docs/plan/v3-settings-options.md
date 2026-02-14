@@ -15,7 +15,7 @@
 做：
 - 新增 Options Page（Settings UI）
 - `chrome.storage.local` 持久化 `baseUrl/apiKey/model`
-- “Test LLM” 发起最小请求并回显成功/错误
+- “Test LLM connection” 发起 `POST /v1/responses` 并回显成功/错误（请求体对齐 Smart_Bookmark）
 
 不做：
 - Provider 兼容矩阵（国产模型差异后置）
@@ -25,9 +25,9 @@
 
 - 能通过 `chrome.runtime.openOptionsPage()` 打开 Settings
 - 保存后再次打开仍显示相同值（至少 baseUrl/model；apiKey 用密码框显示但可持久化）
-- 点击 “Test LLM”：
-  - 成功：显示 `ok: true` + 简短结果摘要
-  - 失败：显示 `ok: false` + `message`
+- 点击 “Test LLM connection”（`/v1/responses`）：
+  - 成功：显示 `ok: true` + `endpoint/status/json`
+  - 失败：显示 `ok: false` + `endpoint/status/error`
 - 代码层可证明：`extension/main_bridge.js` 不读取、不接收 `apiKey/baseUrl`
 
 ## Verify
@@ -35,7 +35,7 @@
 - 手工：
   1) 打开 Side Panel → 点 Settings
   2) 填入 `baseUrl/apiKey/model` → Save
-  3) 点击 Test LLM，看到成功/错误回显
+  3) 点击 Test LLM connection，看到成功/错误回显（能明确看到调用的是 `/v1/responses`）
 - 自动化（v3 E2E 里覆盖）：见 `docs/plan/v3-e2e-agent.md`
 
 ## Files（预计）
@@ -49,4 +49,3 @@
 ## Risks
 
 - 不同 OpenAI-compatible 服务的响应格式差异：先做最小请求与错误透传，避免过早“泛兼容”。
-
