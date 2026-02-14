@@ -94,7 +94,7 @@ async function sendAssistantTextStream(res: http.ServerResponse, text: string) {
   res.end()
 }
 
-export async function startMockOpenAIResponsesServer() {
+export async function startMockOpenAIResponsesServer(options: { script?: "flightsearch" | "skill-hello" } = {}) {
   const server = http.createServer(async (req, res) => {
     try {
       setCors(res)
@@ -115,36 +115,40 @@ export async function startMockOpenAIResponsesServer() {
       const input = Array.isArray(body?.input) ? body.input : []
       const done = outputsByToolName(input)
 
-      // Scripted agent loop:
-      // - First: call searchFlights with the known demo args
-      // - After searchFlights result (and navigation notice): call listFlights
-      // - After listFlights: return a short summary (streamed deltas)
-      if (!done.has('searchFlights')) {
-        await sendToolCallStream(
-          res,
-          'searchFlights',
-          'call_searchFlights_1',
-          {
-            origin: 'LON',
-            destination: 'NYC',
-            tripType: 'round-trip',
-            outboundDate: '2026-02-14',
-            inboundDate: '2026-02-21',
-            passengers: 2,
-          }
-        )
-        return
+      const script = options.script ?? "flightsearch";
+
+      if (script === "skill-hello") {
+        if (!done.has("ListSkills")) {
+          await sendToolCallStream(res, "ListSkills", "call_listskills_1", {});
+          return;
+        }
+        if (!done.has("Skill")) {
+          await sendToolCallStream(res, "Skill", "call_skill_1", { name: "hello-world" });
+          return;
+        }
+        await sendAssistantTextStream(res, "已完成：Skill 已加载（hello-world）。");
+        return;
       }
 
-      if (!done.has('listFlights')) {
-        await sendToolCallStream(res, 'listFlights', 'call_listFlights_1', {})
-        return
+      // flightsearch
+      if (!done.has("searchFlights")) {
+        await sendToolCallStream(res, "searchFlights", "call_searchFlights_1", {
+          origin: "LON",
+          destination: "NYC",
+          tripType: "round-trip",
+          outboundDate: "2026-02-14",
+          inboundDate: "2026-02-21",
+          passengers: 2,
+        });
+        return;
       }
 
-      await sendAssistantTextStream(
-        res,
-        '已完成：已在结果页调用 listFlights 读取航班列表，并可按价格/时长/中转次数做进一步筛选与总结。'
-      )
+      if (!done.has("listFlights")) {
+        await sendToolCallStream(res, "listFlights", "call_listFlights_1", {});
+        return;
+      }
+
+      await sendAssistantTextStream(res, "已完成：已在结果页调用 listFlights 读取航班列表，并可按价格/时长/中转次数做进一步筛选与总结。")
     } catch (e: any) {
       res.statusCode = 500
       res.setHeader('content-type', 'application/json; charset=utf-8')
@@ -163,4 +167,3 @@ export async function startMockOpenAIResponsesServer() {
     },
   }
 }
-

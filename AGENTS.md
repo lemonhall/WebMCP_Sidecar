@@ -11,7 +11,8 @@
 
 ## Roadmap Notes
 - Phase 1 先聚焦：Agent Chat + 历史 + Settings（LLM 配置与连通性测试）+ 复用页面工具（保持 Inspector 可用）。
-- **SKILL 与其它高级能力**：柠檬叔已确认后续一定会做，但不作为 Phase 1 的第一优先级（先记一笔，后续进入 v3+ 计划细化）。
+- **Skill（Meta Tool）+ OPFS shadow workspace**：已接入（见 `docs/ecn/ECN-0008-opfs-shadow-workspace-and-skill-tool.md`）。技能文件存储在 OPFS：`.agents/skills/<skill-name>/SKILL.md`，调试预置 `hello-world`。
+- **SKILL 注入体系（给站点补工具）**：后续再做。
 
 ## Quick Commands (PowerShell)
 - Verify (结构校验): `powershell -File scripts/verify.ps1`

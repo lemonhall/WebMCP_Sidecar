@@ -3,6 +3,7 @@ import { ToolRegistry } from './agent/toolRegistry.js'
 import { ToolRunner } from './agent/toolRunner.js'
 import { AgentRuntime } from './agent/agentRuntime.js'
 import { OpenAIResponsesProvider } from './agent/openaiResponsesProvider.js'
+import { openShadowWorkspace, ensureHelloWorldSkill, createShadowWorkspaceTools } from './agent/shadowTools.js'
 
 const STORAGE_SETTINGS_KEY = 'settings.llm.v1'
 const STORAGE_SESSION_ID_KEY = 'wmcp.agent.currentSessionId.v1'
@@ -82,9 +83,11 @@ function renderChatEvent(e) {
   if (e.type === 'user.message') {
     meta = 'user'
     text = e.text ?? ''
+    div.classList.add('role-user')
   } else if (e.type === 'assistant.message') {
     meta = 'assistant'
     text = e.text ?? ''
+    div.classList.add('role-assistant')
   } else if (e.type === 'assistant.delta') {
     meta = 'assistant.delta'
     text = e.textDelta ?? ''
@@ -463,6 +466,10 @@ async function onChatSend(sessionStore, sessionId) {
       scrollChatToBottom()
     }
 
+    const workspace = await openShadowWorkspace()
+    await ensureHelloWorldSkill(workspace).catch(() => {})
+    const shadowTools = createShadowWorkspaceTools({ workspace })
+
     let lastKnownUrl = await getActiveTabUrl().catch(() => '')
     let navHandling = false
     let lastToolsSig = ''
@@ -502,7 +509,7 @@ async function onChatSend(sessionStore, sessionId) {
             },
           })
         }
-        registry.replaceAll(tools)
+        registry.replaceAll([...shadowTools, ...tools])
         const names = registry.names()
         const sig = JSON.stringify(names)
         lastNames = names
@@ -534,7 +541,7 @@ async function onChatSend(sessionStore, sessionId) {
     }
 
     await refreshRegistryTools()
-    const runner = new ToolRunner({ tools: registry, sessionStore })
+    const runner = new ToolRunner({ tools: registry, sessionStore, contextFactory: async () => ({ workspace }) })
     const provider = new OpenAIResponsesProvider({ baseUrl: settings.baseUrl })
     const tab = await getActiveHttpTab().catch(() => ({ url: '', title: '' }))
     const tabUrl = typeof tab?.url === 'string' ? tab.url : ''
@@ -550,8 +557,15 @@ async function onChatSend(sessionStore, sessionId) {
       systemPrompt: `You are a browser side-panel agent.
 Current tab title: ${tabTitle || '(unknown)'}
 Current tab URL: ${tabUrl || '(unknown)'}
-Available tool names: ${registry.names().join(', ') || '(none)'}
-Use available tools when needed.`,
+
+Hard rules:
+- Do NOT invent tools or capabilities. Only use tools that exist in "Available tool names (refreshed)".
+- If the user asks "有什么技能 / skills / SKILL", call "ListSkills" and answer with the returned skill names + descriptions.
+- Only call "Skill" when the user explicitly asks to load a specific skill by name (or after you ask a clarifying question).
+
+Notes:
+- Skills live in the shadow workspace: .agents/skills/<skill-name>/SKILL.md
+- You can inspect/edit the shadow workspace using ListDir/Read/Write/Edit/Glob/Grep when needed.`,
       maxSteps: 8,
     })
 

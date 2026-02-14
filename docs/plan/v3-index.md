@@ -21,7 +21,14 @@ DoD（硬口径）：
 - Chat 能触发至少一次工具调用并在 UI 呈现工具调用事件（含 tool name + args + result/error）
 
 非目标（v3 不做 / 先记一笔）：
-- SKILL 注入体系与 SKILL 管理器（柠檬叔已确认后续一定要做，但先不抢占 Phase 1 的第一优先级）
+- SKILL 注入体系与 SKILL 管理器（“给网站补工具”的那条线，后续再做）
+
+### M2: Skill（Meta Tool）+ OPFS Shadow Workspace（implemented）
+
+范围：
+- OPFS shadow workspace：`.agents/skills/<skill-name>/SKILL.md`
+- `Skill`（Claude 风格 Meta Tool）+ `ListDir/Read/Write/Edit/Glob/Grep` 常驻注入到 Agent runtime
+- 预置 `hello-world` skill 便于调试
 
 ## Plans
 
@@ -29,6 +36,7 @@ DoD（硬口径）：
 - `docs/plan/v3-sidepanel-chat.md`
 - `docs/plan/v3-agent-runtime.md`
 - `docs/plan/v3-e2e-agent.md`
+- `docs/plan/v3-skill-opfs-shadow-workspace.md`
 
 ## Traceability Matrix（v3）
 
@@ -41,8 +49,8 @@ DoD（硬口径）：
 | REQ-0002-005 | v3-agent-runtime | 手工 + v3 E2E | implemented |
 | REQ-0002-006 | v3-agent-runtime | 代码审计 + 手工 | implemented |
 | REQ-0002-007 | v3-settings-options + v3-agent-runtime | 代码审计 | implemented |
-| REQ-0002-008 | v3-e2e-agent | `verify.ps1` + `npm run test:e2e` | todo |
-| REQ-0002-009 | v3-e2e-agent | `npm run test:e2e` | todo |
+| REQ-0002-008 | v3-e2e-agent | `verify.ps1` + `npm run test:e2e` | done |
+| REQ-0002-009 | v3-e2e-agent | `npm run test:e2e` | done |
 
 ## ECN Index
 
@@ -50,6 +58,7 @@ DoD（硬口径）：
 - `docs/ecn/ECN-0005-drop-optional-permissions-all-urls.md`
 - `docs/ecn/ECN-0006-chat-streaming-and-results-followup.md`
 - `docs/ecn/ECN-0007-tools-reload-on-url-change.md`
+- `docs/ecn/ECN-0008-opfs-shadow-workspace-and-skill-tool.md`
 
 ## Differences
 

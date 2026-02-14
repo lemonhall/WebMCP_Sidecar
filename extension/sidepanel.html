@@ -81,6 +81,25 @@
       .msg.tool {
         background: #f9fafb;
       }
+      .msg.role-user,
+      .msg.role-assistant {
+        max-width: 92%;
+      }
+      .msg.role-user {
+        align-self: flex-end;
+        background: #eff6ff;
+        border-color: #93c5fd;
+      }
+      .msg.role-assistant {
+        align-self: flex-start;
+        background: #ecfdf5;
+        border-color: #6ee7b7;
+      }
+      .msg.role-user .meta,
+      .msg.role-assistant .meta {
+        color: #111827;
+        font-weight: 600;
+      }
       .msg.truncatable {
         cursor: pointer;
       }
