@@ -215,6 +215,52 @@ export function createShadowWorkspaceTools(options) {
   });
 
   tools.push({
+    name: "Mkdir",
+    description: "Create a directory (and parents) in the shadow workspace.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Workspace-relative directory path." },
+      },
+      required: ["path"],
+    },
+    run: async (toolInput) => {
+      const pathRaw = toolInput?.path;
+      const path = typeof pathRaw === "string" ? pathRaw.trim() : "";
+      if (!path) throw new Error("Mkdir: 'path' must be a non-empty string");
+      await workspace.mkdir(path);
+      return { ok: true, path };
+    },
+  });
+
+  tools.push({
+    name: "Delete",
+    description: "Delete a file or directory in the shadow workspace (supports recursive).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Workspace-relative path to delete." },
+        recursive: { type: "boolean", description: "Allow recursive directory delete (default: false)." },
+      },
+      required: ["path"],
+    },
+    run: async (toolInput) => {
+      const pathRaw = toolInput?.path;
+      const path = typeof pathRaw === "string" ? pathRaw.trim() : "";
+      if (!path) throw new Error("Delete: 'path' must be a non-empty string");
+      const recursive = Boolean(toolInput?.recursive ?? false);
+      const st = await workspace.stat(path);
+      if (!st) throw new Error(`Delete: not found: ${path}`);
+      if (st.type === "file") {
+        await workspace.deleteFile(path);
+        return { ok: true, path, type: "file" };
+      }
+      await workspace.deletePath(path, { recursive });
+      return { ok: true, path, type: "dir", recursive };
+    },
+  });
+
+  tools.push({
     name: "ListDir",
     description: "List a directory in the shadow workspace.",
     inputSchema: {

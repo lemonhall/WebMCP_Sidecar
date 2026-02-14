@@ -1,4 +1,10 @@
 import { OPFSWorkspace } from './agent/opfsWorkspace.js'
+import { ensureHelloWorldSkill, createShadowWorkspaceTools } from './agent/shadowTools.js'
+import { ChromeSessionStore } from './agent/sessionStoreChrome.js'
+import { ToolRegistry } from './agent/toolRegistry.js'
+import { ToolRunner } from './agent/toolRunner.js'
+import { AgentRuntime } from './agent/agentRuntime.js'
+import { OpenAIResponsesProvider } from './agent/openaiResponsesProvider.js'
 
 const STORAGE_KEY = 'settings.llm.v1'
 
@@ -166,6 +172,13 @@ const fmEditorEl = document.getElementById('fmEditor')
 const fmOpenPathEl = document.getElementById('fmOpenPath')
 const fmStatusEl = document.getElementById('fmStatus')
 
+// File Agent UI
+const fileAgentMessagesEl = document.getElementById('fileAgentMessages')
+const fileAgentInputEl = document.getElementById('fileAgentInput')
+const fileAgentSendBtn = document.getElementById('fileAgentSend')
+const fileAgentClearBtn = document.getElementById('fileAgentClear')
+const fileAgentStatusEl = document.getElementById('fileAgentStatus')
+
 function setFmStatus(text) {
   fmStatusEl.textContent = text
 }
@@ -200,6 +213,14 @@ let fmWorkspace = null
 let fmCwd = '.agents'
 let fmOpenPath = ''
 
+function svgFolder() {
+  return `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h6l2 2h10v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>`
+}
+
+function svgFile() {
+  return `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>`
+}
+
 function renderFileList(entries) {
   fmListEl.innerHTML = ''
   const sorted = Array.isArray(entries) ? entries.slice() : []
@@ -215,7 +236,7 @@ function renderFileList(entries) {
     div.className = 'fileItem'
     const kind = document.createElement('div')
     kind.className = 'kind'
-    kind.textContent = ent.type === 'dir' ? 'DIR' : 'FILE'
+    kind.innerHTML = ent.type === 'dir' ? svgFolder() : svgFile()
     const name = document.createElement('div')
     name.className = 'name'
     name.textContent = ent.name
@@ -242,6 +263,22 @@ async function ensureAgentsRoot() {
     await fmWorkspace.mkdir('.agents')
     await fmWorkspace.mkdir('.agents/skills')
     await fmWorkspace.mkdir('.agents/sessions')
+  }
+
+  await fmWorkspace.mkdir('.agents/skills').catch(() => {})
+  await fmWorkspace.mkdir('.agents/sessions').catch(() => {})
+  await ensureHelloWorldSkill(fmWorkspace).catch(() => {})
+
+  const sessionsReadme = '.agents/sessions/README.md'
+  const exists = await fmWorkspace.stat(sessionsReadme).catch(() => null)
+  if (!exists) {
+    const text = [
+      '# Sessions',
+      '',
+      '这里用于存放会话日志（未来会把 sidepanel/options 内置 agent 的 session events 同步到此目录）。',
+      '',
+    ].join('\n')
+    await fmWorkspace.writeFile(sessionsReadme, new TextEncoder().encode(text)).catch(() => {})
   }
 }
 
@@ -351,6 +388,187 @@ async function initFileManager() {
   }
 }
 
+function setFileAgentStatus(text) {
+  fileAgentStatusEl.textContent = text
+}
+
+function scrollFileAgentToBottom() {
+  const el = fileAgentMessagesEl
+  el.scrollTop = el.scrollHeight
+}
+
+function renderAgentEvent(e) {
+  const div = document.createElement('div')
+  div.className = 'msg'
+
+  let meta = ''
+  let text = ''
+  let isTool = false
+
+  if (e.type === 'user.message') {
+    meta = 'user'
+    text = e.text ?? ''
+    div.classList.add('role-user')
+  } else if (e.type === 'assistant.message') {
+    meta = 'assistant'
+    text = e.text ?? ''
+    div.classList.add('role-assistant')
+  } else if (e.type === 'assistant.delta') {
+    meta = 'assistant.delta'
+    text = e.textDelta ?? ''
+    isTool = true
+  } else if (e.type === 'tool.use') {
+    meta = `tool.use: ${e.name ?? ''}`
+    text = JSON.stringify(e.input ?? {}, null, 2)
+    isTool = true
+  } else if (e.type === 'tool.result') {
+    meta = `tool.result${e.isError ? ' (error)' : ''}`
+    text = e.isError ? String(e.errorMessage ?? 'Tool failed') : JSON.stringify(e.output ?? null, null, 2)
+    isTool = true
+  } else if (e.type === 'result') {
+    meta = `result: ${e.stopReason ?? 'end'}`
+    isTool = true
+  } else {
+    meta = e.type ?? 'event'
+    text = JSON.stringify(e, null, 2)
+    isTool = true
+  }
+
+  if (isTool) div.classList.add('tool')
+
+  const metaEl = document.createElement('div')
+  metaEl.className = 'meta'
+  metaEl.textContent = meta
+
+  const textEl = document.createElement('div')
+  textEl.className = 'text'
+  textEl.textContent = text
+
+  div.appendChild(metaEl)
+  div.appendChild(textEl)
+  return div
+}
+
+async function loadLlmSettingsForAgent() {
+  const stored = await chrome.storage.local.get(STORAGE_KEY)
+  const v = stored?.[STORAGE_KEY] ?? {}
+  return {
+    baseUrl: normalizeBaseUrl(v.baseUrl ?? ''),
+    model: String(v.model ?? '').trim(),
+    apiKey: String(v.apiKey ?? '').trim(),
+  }
+}
+
+function filterFsTools(allTools) {
+  const allow = new Set(['ListDir', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'Mkdir', 'Delete'])
+  return (Array.isArray(allTools) ? allTools : []).filter((t) => t?.name && allow.has(t.name))
+}
+
+async function createFileAgent() {
+  if (!fmWorkspace) await initFileManager()
+  if (!fmWorkspace) throw new Error('File Agent: OPFS workspace not available')
+  const settings = await loadLlmSettingsForAgent()
+  if (!settings.baseUrl || !settings.model || !settings.apiKey) {
+    throw new Error('File Agent: LLM settings missing (fill baseUrl/model/apiKey in LLM tab)')
+  }
+
+  const allShadowTools = createShadowWorkspaceTools({ workspace: fmWorkspace })
+  const fsTools = filterFsTools(allShadowTools)
+
+  const registry = new ToolRegistry()
+  registry.replaceAll(fsTools)
+
+  const sessionStore = new ChromeSessionStore()
+  const sessionId = await sessionStore.createSession({ metadata: { kind: 'options.files.agent' } })
+
+  const runner = new ToolRunner({ tools: registry, sessionStore, contextFactory: async () => ({ workspace: fmWorkspace }) })
+  const provider = new OpenAIResponsesProvider({ baseUrl: settings.baseUrl })
+
+  const runtime = new AgentRuntime({
+    sessionStore,
+    toolRunner: runner,
+    tools: registry,
+    provider,
+    model: settings.model,
+    apiKey: settings.apiKey,
+    systemPrompt: `You are a file management agent.
+You can ONLY use filesystem tools to manage the shadow workspace (.agents/*).
+Never claim you performed an action unless you actually called a tool.
+Prefer to operate under .agents/skills and .agents/sessions.
+Start by inspecting the relevant directory with ListDir when needed.`,
+    maxSteps: 10,
+  })
+
+  return { sessionStore, sessionId, runtime }
+}
+
+let fileAgent = null
+
+async function ensureFileAgentReady() {
+  if (fileAgent) return fileAgent
+  fileAgent = await createFileAgent()
+  return fileAgent
+}
+
+async function onFileAgentClear() {
+  fileAgentMessagesEl.innerHTML = ''
+  setFileAgentStatus('idle')
+  fileAgent = null
+}
+
+async function onFileAgentSend() {
+  const text = String(fileAgentInputEl.value ?? '').trim()
+  if (!text) return
+  fileAgentInputEl.value = ''
+
+  setFileAgentStatus('running...')
+  fileAgentSendBtn.disabled = true
+  fileAgentClearBtn.disabled = true
+
+  let liveAssistantEl = null
+  let liveText = ''
+
+  try {
+    await ensureFileAgentReady()
+    const { sessionStore, sessionId, runtime } = fileAgent
+    for await (const ev of runtime.runTurn({ sessionId, userText: text })) {
+      if (ev.type === 'assistant.delta') {
+        if (!liveAssistantEl) {
+          liveAssistantEl = renderAgentEvent({ type: 'assistant.message', text: '' })
+          const meta = liveAssistantEl.querySelector('.meta')
+          if (meta) meta.textContent = 'assistant (streaming)'
+          fileAgentMessagesEl.appendChild(liveAssistantEl)
+        }
+        liveText += ev.textDelta ?? ''
+        const txt = liveAssistantEl.querySelector('.text')
+        if (txt) txt.textContent = liveText
+        scrollFileAgentToBottom()
+        continue
+      }
+
+      if (ev.type === 'assistant.message' && liveAssistantEl) {
+        const meta = liveAssistantEl.querySelector('.meta')
+        if (meta) meta.textContent = 'assistant'
+        const txt = liveAssistantEl.querySelector('.text')
+        if (txt) txt.textContent = ev.text ?? ''
+        liveAssistantEl = null
+        liveText = ''
+        scrollFileAgentToBottom()
+        continue
+      }
+
+      fileAgentMessagesEl.appendChild(renderAgentEvent(ev))
+      scrollFileAgentToBottom()
+    }
+  } catch (e) {
+    fileAgentMessagesEl.appendChild(renderAgentEvent({ type: 'assistant.message', text: `Agent error: ${String(e?.message ?? e)}` }))
+  } finally {
+    setFileAgentStatus('idle')
+    fileAgentSendBtn.disabled = false
+    fileAgentClearBtn.disabled = false
+  }
+}
+
 // -------------------------
 // Boot
 // -------------------------
@@ -392,7 +610,12 @@ fmNewDirBtn.addEventListener('click', () => newDir(fmPathEl.value).catch((e) => 
 fmDeleteBtn.addEventListener('click', () => deletePath(fmPathEl.value).catch((e) => setFmStatus(String(e?.message ?? e))))
 fmSaveBtn.addEventListener('click', () => saveOpenFile().catch((e) => setFmStatus(String(e?.message ?? e))))
 
+fileAgentSendBtn.addEventListener('click', () => onFileAgentSend().catch(() => setFileAgentStatus('error')))
+fileAgentClearBtn.addEventListener('click', () => onFileAgentClear().catch(() => setFileAgentStatus('error')))
+fileAgentInputEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) onFileAgentSend().catch(() => setFileAgentStatus('error'))
+})
+
 setTabActive('llm')
 setStatus('idle')
 loadSettings().catch((e) => setResult({ ok: false, message: String(e?.message ?? e) }))
-

@@ -9,6 +9,7 @@
 做：
 - Settings 增加 `Files` 页签
 - OPFS `.agents` 根目录初始化（自动创建 `.agents/skills`、`.agents/sessions`）
+- 默认内容：确保 `.agents/skills/hello-world/SKILL.md` 与 `.agents/sessions/README.md`
 - 目录浏览：`cwd` + 列表（文件/目录）
 - 文件操作：
   - `Open`：打开文本文件到编辑器
@@ -21,6 +22,7 @@
 - 复杂的 rename/move（可后续通过 copy+delete 实现）
 - 二进制预览（图片等）
 - sessions 日志迁移（先铺路）
+- 复杂的权限系统（Options 右侧常驻 File Agent 仅授予 FS tools）
 
 ## Verify
 
@@ -31,4 +33,5 @@
 ## Trace
 
 - ECN: `docs/ecn/ECN-0009-options-file-manager-opfs-agents.md`
-
+- ECN: `docs/ecn/ECN-0010-files-tab-icons-and-embedded-file-agent.md`
+- ECN: `docs/ecn/ECN-0011-options-right-file-agent-and-hide-sidepanel-on-settings.md`

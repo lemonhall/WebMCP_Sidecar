@@ -3,6 +3,7 @@ const WMCP = {
     REFRESH: 'wmcp:refresh',
     CALL: 'wmcp:call',
     GET_ACTIVE_TAB: 'wmcp:getActiveTab',
+    HIDE_SIDE_PANEL: 'wmcp:hideSidePanel',
   },
   BG_TO_CS: {
     LIST_TOOLS: 'wmcp:listTools',
@@ -58,6 +59,11 @@ async function getActiveTabId() {
   return active.id
 }
 
+async function hideSidePanelForTab(tabId) {
+  if (!chrome.sidePanel?.setOptions) throw new Error('chrome.sidePanel.setOptions not available')
+  await chrome.sidePanel.setOptions({ tabId, enabled: false })
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   ;(async () => {
     if (!message || typeof message !== 'object') return
@@ -70,6 +76,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           ok: true,
           tab: { id: tab?.id ?? null, url: tab?.url ?? null, title: tab?.title ?? null },
         })
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message ?? e) })
+      }
+      return
+    }
+
+    if (message.type === WMCP.PANEL_TO_BG.HIDE_SIDE_PANEL) {
+      const requested = message.tabId
+      const tabId = typeof requested === 'number' ? requested : await getActiveTabId()
+      try {
+        await hideSidePanelForTab(tabId)
+        sendResponse({ ok: true })
       } catch (e) {
         sendResponse({ ok: false, error: String(e?.message ?? e) })
       }

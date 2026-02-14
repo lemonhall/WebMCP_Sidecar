@@ -632,7 +632,13 @@ async function onChatCopy(sessionStore, sessionId) {
 // Boot
 // -------------------------
 
-settingsBtn?.addEventListener('click', () => chrome.runtime.openOptionsPage())
+settingsBtn?.addEventListener('click', () => {
+  getActiveHttpTab()
+    .then((tab) =>
+      chrome.runtime.sendMessage({ type: 'wmcp:hideSidePanel', tabId: typeof tab?.id === 'number' ? tab.id : null }).catch(() => null)
+    )
+    .finally(() => chrome.runtime.openOptionsPage())
+})
 
 tabChat.addEventListener('click', () => setTabActive('chat'))
 tabInspector.addEventListener('click', () => setTabActive('inspector'))

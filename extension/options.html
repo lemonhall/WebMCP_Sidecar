@@ -8,7 +8,7 @@
       body {
         font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, 'Apple Color Emoji', 'Segoe UI Emoji';
         margin: 20px;
-        max-width: 900px;
+        max-width: 1400px;
       }
       h1 {
         font-size: 18px;
@@ -73,12 +73,69 @@
       .hidden {
         display: none !important;
       }
-      .grid2 {
+      .grid3 {
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: 1fr 1.3fr 1fr;
         gap: 10px;
         align-items: start;
         margin-top: 12px;
+      }
+      .grid2 {
+        display: grid;
+        grid-template-columns: 1fr 1.4fr;
+        gap: 10px;
+        align-items: start;
+        margin-top: 12px;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(620px, 1fr) 420px;
+        gap: 14px;
+        align-items: start;
+      }
+      .sideCard {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 12px;
+        background: #fff;
+        position: sticky;
+        top: 12px;
+      }
+      .sideTitle {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .sideTitle h2 {
+        font-size: 14px;
+        margin: 0;
+      }
+      .iconBtn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        color: #111827;
+        border-radius: 8px;
+        padding: 8px 10px;
+        cursor: pointer;
+      }
+      .iconBtn:hover {
+        background: #f9fafb;
+      }
+      .iconBtn:active {
+        background: #f3f4f6;
+      }
+      .iconBtn .icon {
+        width: 16px;
+        height: 16px;
+        display: inline-flex;
+        color: #111827;
+      }
+      .iconBtn .label {
+        font-size: 13px;
       }
       .fileList {
         border: 1px solid #e5e7eb;
@@ -99,9 +156,12 @@
         background: #f9fafb;
       }
       .fileItem .kind {
-        width: 44px;
-        font-size: 12px;
-        color: #6b7280;
+        width: 22px;
+        height: 18px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: #111827;
       }
       .fileItem .name {
         flex: 1;
@@ -113,6 +173,59 @@
         height: 320px;
         font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
         padding: 10px;
+      }
+      .editor.small {
+        height: 110px;
+      }
+      .agentMessages {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin: 10px 0;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 8px;
+        background: #fff;
+        height: 300px;
+        overflow: auto;
+      }
+      .msg {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 8px 10px;
+        background: #fff;
+      }
+      .msg .meta {
+        font-size: 12px;
+        color: #6b7280;
+        margin-bottom: 4px;
+      }
+      .msg .text {
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 13px;
+      }
+      .msg.tool {
+        background: #f9fafb;
+      }
+      .msg.role-user,
+      .msg.role-assistant {
+        max-width: 92%;
+      }
+      .msg.role-user {
+        align-self: flex-end;
+        background: #eff6ff;
+        border-color: #93c5fd;
+      }
+      .msg.role-assistant {
+        align-self: flex-start;
+        background: #ecfdf5;
+        border-color: #6ee7b7;
+      }
+      .msg.role-user .meta,
+      .msg.role-assistant .meta {
+        color: #111827;
+        font-weight: 600;
       }
       pre {
         white-space: pre-wrap;
@@ -126,6 +239,14 @@
         color: #666;
         font-size: 12px;
       }
+      @media (max-width: 980px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+        .sideCard {
+          position: static;
+        }
+      }
     </style>
   </head>
   <body>
@@ -135,62 +256,162 @@
 
     <div style="height: 12px"></div>
 
-    <div class="tabbar">
-      <button id="tabLlm" class="tab active" type="button">LLM</button>
-      <button id="tabFiles" class="tab" type="button">Files</button>
-      <span style="flex: 1"></span>
-      <span class="muted" id="status" style="padding: 0 4px 8px">idle</span>
-    </div>
-
-    <section id="llmSection" class="panel">
-      <div class="grid">
-        <label for="baseUrl">Base URL</label>
-        <input id="baseUrl" placeholder="https://api.openai.com 或 https://host/prefix/v1" />
-
-        <label for="model">Model</label>
-        <input id="model" placeholder="gpt-4.1-mini（示例）" />
-
-        <label for="apiKey">API Key</label>
-        <input id="apiKey" type="password" placeholder="sk-..." />
-      </div>
-
-      <div class="row">
-        <button id="save" type="button">Save</button>
-        <button id="test" type="button">Test LLM connection</button>
-      </div>
-
-      <pre id="result"></pre>
-    </section>
-
-    <section id="filesSection" class="panel hidden">
-      <div class="muted">OPFS（Origin Private File System）中的 `.agents/*` 文件管理器（仅扩展内可见）。</div>
-      <div style="height: 8px"></div>
-
-      <div class="row" style="gap: 8px; flex-wrap: wrap">
-        <button id="fmUp" type="button">Up</button>
-        <button id="fmRefresh" type="button">Refresh</button>
-        <input id="fmPath" style="flex: 1; min-width: 260px" placeholder=".agents/skills/hello-world/SKILL.md 或 .agents/sessions/..." />
-        <button id="fmOpen" type="button">Open</button>
-        <button id="fmNewFile" type="button">New File</button>
-        <button id="fmNewDir" type="button">New Folder</button>
-        <button id="fmDelete" type="button">Delete</button>
-      </div>
-
-      <div class="grid2">
-        <div>
-          <div class="muted" id="fmCwd">cwd: (loading...)</div>
-          <div id="fmList" class="fileList"></div>
+    <div class="layout">
+      <div>
+        <div class="tabbar">
+          <button id="tabLlm" class="tab active" type="button">LLM</button>
+          <button id="tabFiles" class="tab" type="button">Files</button>
+          <span style="flex: 1"></span>
+          <span class="muted" id="status" style="padding: 0 4px 8px">idle</span>
         </div>
-        <div>
-          <div class="muted" id="fmOpenPath">open: (none)</div>
-          <textarea id="fmEditor" class="editor" placeholder="Select a file to view/edit..."></textarea>
-          <div class="row">
-            <button id="fmSave" type="button">Save</button>
-            <span class="muted" id="fmStatus">idle</span>
+
+        <section id="llmSection" class="panel">
+          <div class="grid">
+            <label for="baseUrl">Base URL</label>
+            <input id="baseUrl" placeholder="https://api.openai.com 或 https://host/prefix/v1" />
+
+            <label for="model">Model</label>
+            <input id="model" placeholder="gpt-4.1-mini（示例）" />
+
+            <label for="apiKey">API Key</label>
+            <input id="apiKey" type="password" placeholder="sk-..." />
           </div>
-        </div>
+
+          <div class="row">
+            <button id="save" type="button">Save</button>
+            <button id="test" type="button">Test LLM connection</button>
+          </div>
+
+          <pre id="result"></pre>
+        </section>
+
+        <section id="filesSection" class="panel hidden">
+          <div class="muted">OPFS（Origin Private File System）中的 `.agents/*` 文件管理器（仅扩展内可见）。</div>
+          <div style="height: 8px"></div>
+
+          <div class="row" style="gap: 8px; flex-wrap: wrap">
+            <button id="fmUp" class="iconBtn" type="button" aria-label="Up">
+              <span class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 19V5" />
+                  <path d="M6 11l6-6 6 6" />
+                </svg>
+              </span>
+              <span class="label">Up</span>
+            </button>
+            <button id="fmRefresh" class="iconBtn" type="button" aria-label="Refresh">
+              <span class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                  <path d="M21 3v6h-6" />
+                </svg>
+              </span>
+              <span class="label">Refresh</span>
+            </button>
+            <input id="fmPath" style="flex: 1; min-width: 260px" placeholder=".agents/skills/hello-world/SKILL.md 或 .agents/sessions/..." />
+            <button id="fmOpen" class="iconBtn" type="button" aria-label="Open">
+              <span class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 7h6l2 2h10v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+                  <path d="M21 9l-2 10" />
+                </svg>
+              </span>
+              <span class="label">Open</span>
+            </button>
+            <button id="fmNewFile" class="iconBtn" type="button" aria-label="New File">
+              <span class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <path d="M14 2v6h6" />
+                  <path d="M12 12v6" />
+                  <path d="M9 15h6" />
+                </svg>
+              </span>
+              <span class="label">New File</span>
+            </button>
+            <button id="fmNewDir" class="iconBtn" type="button" aria-label="New Folder">
+              <span class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 7h6l2 2h10v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+                  <path d="M12 12v6" />
+                  <path d="M9 15h6" />
+                </svg>
+              </span>
+              <span class="label">New Folder</span>
+            </button>
+            <button id="fmDelete" class="iconBtn" type="button" aria-label="Delete">
+              <span class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 6h18" />
+                  <path d="M8 6V4h8v2" />
+                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                  <path d="M10 11v6" />
+                  <path d="M14 11v6" />
+                </svg>
+              </span>
+              <span class="label">Delete</span>
+            </button>
+          </div>
+
+          <div class="grid2">
+            <div>
+              <div class="muted" id="fmCwd">cwd: (loading...)</div>
+              <div id="fmList" class="fileList"></div>
+            </div>
+            <div>
+              <div class="muted" id="fmOpenPath">open: (none)</div>
+              <textarea id="fmEditor" class="editor" placeholder="Select a file to view/edit..."></textarea>
+              <div class="row">
+                <button id="fmSave" class="iconBtn" type="button" aria-label="Save">
+                  <span class="icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                      <path d="M17 21v-8H7v8" />
+                      <path d="M7 3v5h8" />
+                    </svg>
+                  </span>
+                  <span class="label">Save</span>
+                </button>
+                <span class="muted" id="fmStatus">idle</span>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
-    </section>
+
+      <aside class="sideCard">
+        <div class="sideTitle">
+          <h2>File Agent</h2>
+          <span class="muted">仅 Filesystem 工具</span>
+        </div>
+        <div class="muted">ListDir/Read/Write/Edit/Glob/Grep/Mkdir/Delete（作用域：OPFS 的 `.agents/*`）</div>
+        <div id="fileAgentMessages" class="agentMessages"></div>
+        <div class="row" style="margin-top: 0">
+          <textarea id="fileAgentInput" class="editor small" placeholder="让 Agent 管理 .agents/...（例如：创建一个新 skill 模板）"></textarea>
+        </div>
+        <div class="row" style="margin-top: 8px; flex-wrap: wrap">
+          <button id="fileAgentSend" class="iconBtn" type="button" aria-label="Send">
+            <span class="icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 2L11 13" />
+                <path d="M22 2l-7 20-4-9-9-4 20-7z" />
+              </svg>
+            </span>
+            <span class="label">Send</span>
+          </button>
+          <button id="fileAgentClear" class="iconBtn" type="button" aria-label="Clear">
+            <span class="icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 4H8l-1 2H3" />
+                <path d="M7 6l1 14a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2l1-14" />
+              </svg>
+            </span>
+            <span class="label">Clear</span>
+          </button>
+          <span class="muted" id="fileAgentStatus">idle</span>
+        </div>
+      </aside>
+    </div>
 
     <script type="module" src="options.js"></script>
   </body>

@@ -61,6 +61,8 @@ DoD（硬口径）：
 - `docs/ecn/ECN-0007-tools-reload-on-url-change.md`
 - `docs/ecn/ECN-0008-opfs-shadow-workspace-and-skill-tool.md`
 - `docs/ecn/ECN-0009-options-file-manager-opfs-agents.md`
+- `docs/ecn/ECN-0010-files-tab-icons-and-embedded-file-agent.md`
+- `docs/ecn/ECN-0011-options-right-file-agent-and-hide-sidepanel-on-settings.md`
 
 ## Differences
 
