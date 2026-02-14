@@ -8,7 +8,7 @@
 - 环境：
   - OS：Windows 11（PowerShell）
   - Chrome：（未记录）
-  - 扩展版本（commit）：（待本轮提交后补）
+  - 扩展版本（commit）：28c3ec6
 
 ### Verify（必填）
 
