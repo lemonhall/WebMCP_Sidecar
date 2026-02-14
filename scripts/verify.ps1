@@ -17,7 +17,9 @@ $requiredFiles = @(
   'extension\\content_isolated.js',
   'extension\\main_bridge.js',
   'extension\\sidepanel.html',
-  'extension\\sidepanel.js'
+  'extension\\sidepanel.js',
+  'extension\\options.html',
+  'extension\\options.js'
 )
 
 foreach ($rel in $requiredFiles) {

@@ -57,3 +57,4 @@ DoD：
   - `registerToolsChangedCallback` 自动刷新（testing API 路径）
   - 站点白名单 UI/管理页（查看已授权 origins、撤销授权）
   - CI 增加 artifact（Playwright trace / screenshot）便于排障
+  - Phase 1：Agent Chat + Settings + openagentic-sdk-ts 集成（见 `docs/plan/v3-index.md`）

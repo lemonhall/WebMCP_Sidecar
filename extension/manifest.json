@@ -3,11 +3,15 @@
   "name": "WebMCP Sidecar (Phase0)",
   "version": "0.0.1",
   "description": "Phase 0 kernel: discover WebMCP tools and call execute() from a Side Panel.",
-  "permissions": ["sidePanel", "scripting", "tabs"],
+  "permissions": ["sidePanel", "scripting", "tabs", "storage"],
   "host_permissions": ["https://googlechromelabs.github.io/*"],
   "optional_host_permissions": ["<all_urls>"],
   "side_panel": {
     "default_path": "sidepanel.html"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
   },
   "background": {
     "service_worker": "background.js",

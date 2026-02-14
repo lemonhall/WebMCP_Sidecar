@@ -3,6 +3,7 @@
 - 状态：草案 / 概念验证阶段
 - 日期：2026-02-13
 - 来源：由 `docs/archive/WebMCP-Sidecar-PRD-0.2.md` 归档提炼，并补齐 Req ID + 验收口径
+- 后续：Phase 1（Agent MVP）见 `docs/prd/PRD-0002-webmcp-sidecar-phase1-agent.md`
 
 ## Vision
 

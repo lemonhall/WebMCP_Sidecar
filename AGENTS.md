@@ -9,12 +9,17 @@
   - **Canary/flags**：优先走 `navigator.modelContextTesting.listTools/executeTool`
   - **稳定版 Chrome**：走 MAIN world `navigator.modelContext` polyfill + 调用 `tool.execute()`（不依赖 flags）
 
+## Roadmap Notes
+- Phase 1 先聚焦：Agent Chat + 历史 + Settings（LLM 配置与连通性测试）+ 复用页面工具（保持 Inspector 可用）。
+- **SKILL 与其它高级能力**：柠檬叔已确认后续一定会做，但不作为 Phase 1 的第一优先级（先记一笔，后续进入 v3+ 计划细化）。
+
 ## Quick Commands (PowerShell)
 - Verify (结构校验): `powershell -File scripts/verify.ps1`
 - Install (Playwright): `npm install ; npx playwright install chromium`
 - E2E (Playwright): `npm run test:e2e`
 - Docs: PRD `docs/prd/PRD-0001-webmcp-sidecar.md`，Plan `docs/plan/v1-index.md`
 - v2 Plan: `docs/plan/v2-index.md`
+- Phase 1 PRD: `docs/prd/PRD-0002-webmcp-sidecar-phase1-agent.md`，v3 Plan: `docs/plan/v3-index.md`
 
 ## Architecture Overview
 ### Areas

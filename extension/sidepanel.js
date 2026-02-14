@@ -1,5 +1,6 @@
 const statusEl = document.getElementById('status')
 const refreshBtn = document.getElementById('refresh')
+const settingsBtn = document.getElementById('settings')
 const grantBtn = document.getElementById('grant')
 const callBtn = document.getElementById('call')
 const fillExampleBtn = document.getElementById('fillExample')
@@ -158,6 +159,7 @@ async function callTool() {
 }
 
 refreshBtn.addEventListener('click', refreshTools)
+settingsBtn?.addEventListener('click', () => chrome.runtime.openOptionsPage())
 callBtn.addEventListener('click', callTool)
 grantBtn.addEventListener('click', () => grantCurrentSite().catch((e) => setResult(String(e?.message ?? e))))
 fillExampleBtn.addEventListener('click', fillExample)

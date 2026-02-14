@@ -1,0 +1,179 @@
+const baseUrlEl = document.getElementById('baseUrl')
+const modelEl = document.getElementById('model')
+const apiKeyEl = document.getElementById('apiKey')
+const saveBtn = document.getElementById('save')
+const testBtn = document.getElementById('test')
+const statusEl = document.getElementById('status')
+const resultEl = document.getElementById('result')
+
+const STORAGE_KEY = 'settings.llm.v1'
+
+function setStatus(text) {
+  statusEl.textContent = text
+}
+
+function setResult(obj) {
+  resultEl.textContent = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2)
+}
+
+function normalizeBaseUrl(raw) {
+  if (!raw) return ''
+  let s = String(raw).trim()
+  if (!s) return ''
+  s = s.replace(/\/+$/, '')
+  if (!/^https?:\/\//i.test(s)) s = `https://${s}`
+  return s
+}
+
+function buildUrl(baseUrl, path) {
+  const u = new URL(baseUrl)
+  const basePath = u.pathname.replace(/\/+$/, '')
+  u.pathname = `${basePath}${path}`
+  return u.toString()
+}
+
+async function loadSettings() {
+  const stored = await chrome.storage.local.get(STORAGE_KEY)
+  const v = stored?.[STORAGE_KEY] ?? {}
+  baseUrlEl.value = v.baseUrl ?? ''
+  modelEl.value = v.model ?? ''
+  apiKeyEl.value = v.apiKey ?? ''
+}
+
+async function saveSettings() {
+  const baseUrl = normalizeBaseUrl(baseUrlEl.value)
+  const model = String(modelEl.value ?? '').trim()
+  const apiKey = String(apiKeyEl.value ?? '').trim()
+
+  await chrome.storage.local.set({
+    [STORAGE_KEY]: { baseUrl, model, apiKey, updatedAt: new Date().toISOString() },
+  })
+
+  baseUrlEl.value = baseUrl
+  setResult({ ok: true, saved: { baseUrl, model, apiKey: apiKey ? '***' : '' } })
+}
+
+async function ensureHostPermissionForBaseUrl(baseUrl) {
+  const origin = new URL(baseUrl).origin
+  const originPattern = `${origin}/*`
+
+  const has = await chrome.permissions.contains({ origins: [originPattern] })
+  if (has) return { ok: true, originPattern, already: true }
+
+  const granted = await chrome.permissions.request({ origins: [originPattern] })
+  if (!granted) return { ok: false, originPattern, error: 'Permission request was denied' }
+  return { ok: true, originPattern, already: false }
+}
+
+async function postJson(url, apiKey, body) {
+  const headers = {
+    'content-type': 'application/json',
+  }
+  if (apiKey) headers.authorization = `Bearer ${apiKey}`
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  })
+
+  const text = await res.text()
+  let json = null
+  try {
+    json = text ? JSON.parse(text) : null
+  } catch (_) {
+    json = null
+  }
+
+  return { ok: res.ok, status: res.status, statusText: res.statusText, json, text }
+}
+
+async function testLLM() {
+  setStatus('testing...')
+  setResult('')
+
+  const stored = await chrome.storage.local.get(STORAGE_KEY)
+  const v = stored?.[STORAGE_KEY] ?? {}
+  const baseUrl = normalizeBaseUrl(v.baseUrl ?? baseUrlEl.value)
+  const model = String(v.model ?? modelEl.value ?? '').trim()
+  const apiKey = String(v.apiKey ?? apiKeyEl.value ?? '').trim()
+
+  if (!baseUrl) {
+    setStatus('error')
+    setResult({ ok: false, message: 'baseUrl is required' })
+    return
+  }
+  if (!model) {
+    setStatus('error')
+    setResult({ ok: false, message: 'model is required' })
+    return
+  }
+
+  const perm = await ensureHostPermissionForBaseUrl(baseUrl)
+  if (!perm.ok) {
+    setStatus('error')
+    setResult({ ok: false, message: perm.error, originPattern: perm.originPattern })
+    return
+  }
+
+  const responsesUrl = buildUrl(baseUrl, '/v1/responses')
+  const body = {
+    model,
+    input: 'ping',
+    stream: false,
+  }
+
+  const r1 = await postJson(responsesUrl, apiKey, body)
+  if (r1.ok) {
+    setStatus('ok')
+    setResult({ ok: true, endpoint: '/v1/responses', status: r1.status, json: r1.json ?? r1.text })
+    return
+  }
+
+  // Best-effort fallback for OpenAI-compatible providers that haven't implemented /v1/responses yet.
+  const shouldFallback = r1.status === 404 || r1.status === 405
+  if (!shouldFallback) {
+    setStatus('error')
+    setResult({ ok: false, endpoint: '/v1/responses', status: r1.status, error: r1.json ?? r1.text })
+    return
+  }
+
+  const ccUrl = buildUrl(baseUrl, '/v1/chat/completions')
+  const r2 = await postJson(ccUrl, apiKey, {
+    model,
+    messages: [{ role: 'user', content: 'ping' }],
+    stream: false,
+  })
+  if (r2.ok) {
+    setStatus('ok')
+    setResult({ ok: true, endpoint: '/v1/chat/completions', status: r2.status, json: r2.json ?? r2.text })
+    return
+  }
+
+  setStatus('error')
+  setResult({
+    ok: false,
+    message: 'Both /v1/responses and /v1/chat/completions failed',
+    responses: { status: r1.status, error: r1.json ?? r1.text },
+    chatCompletions: { status: r2.status, error: r2.json ?? r2.text },
+  })
+}
+
+saveBtn.addEventListener('click', () =>
+  saveSettings()
+    .then(() => setStatus('saved'))
+    .catch((e) => {
+      setStatus('error')
+      setResult({ ok: false, message: String(e?.message ?? e) })
+    })
+)
+
+testBtn.addEventListener('click', () =>
+  testLLM().catch((e) => {
+    setStatus('error')
+    setResult({ ok: false, message: String(e?.message ?? e) })
+  })
+)
+
+loadSettings().catch((e) => setResult({ ok: false, message: String(e?.message ?? e) }))
+

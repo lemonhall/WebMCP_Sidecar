@@ -5,7 +5,10 @@
 ## 文档
 
 - PRD：`docs/prd/PRD-0001-webmcp-sidecar.md`
-- v1 计划：`docs/plan/v1-index.md`
+- PRD（Phase 1）：`docs/prd/PRD-0002-webmcp-sidecar-phase1-agent.md`
+- v1 计划：`docs/plan/v1-index.md`（Phase 0）
+- v2 计划：`docs/plan/v2-index.md`（Inspector/权限/CI）
+- v3 计划：`docs/plan/v3-index.md`（Phase 1 Agent MVP）
 - 研究资料归档：`docs/research/`
 
 ## Phase 0（验证内核）快速开始
