@@ -29,6 +29,23 @@ function parseAssistantText(output) {
   return parts.length ? parts.join('') : null
 }
 
+function parseSseBlocks(text) {
+  // Minimal SSE parser: splits on blank lines and extracts joined data: lines.
+  // Supports OpenAI-style "event: ..." + "data: {...}" blocks.
+  const blocks = String(text ?? '').split(/\n\n+/g)
+  const out = []
+  for (const blk of blocks) {
+    const lines = blk.split(/\n/g)
+    const dataLines = []
+    for (const line of lines) {
+      if (line.startsWith('data:')) dataLines.push(line.slice('data:'.length).trimStart())
+    }
+    if (!dataLines.length) continue
+    out.push(dataLines.join('\n'))
+  }
+  return out
+}
+
 export class OpenAIResponsesProvider {
   name = 'openai-responses'
   #baseUrl
@@ -42,12 +59,13 @@ export class OpenAIResponsesProvider {
     if (!apiKey) throw new Error('OpenAIResponsesProvider: apiKey is required')
 
     const url = `${this.#baseUrl}/responses`
-    const headers = { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` }
+    const headers = { 'content-type': 'application/json', accept: 'application/json', authorization: `Bearer ${apiKey}` }
 
     const payload = {
       model: req.model,
       input: Array.isArray(req.input) ? req.input : [],
       store: typeof req.store === 'boolean' ? req.store : true,
+      stream: false,
     }
     if (typeof req.instructions === 'string' && req.instructions.trim()) payload.instructions = req.instructions
     if (Array.isArray(req.tools) && req.tools.length) payload.tools = req.tools
@@ -60,7 +78,107 @@ export class OpenAIResponsesProvider {
       throw new Error(`OpenAIResponsesProvider: HTTP ${res.status}${text ? `: ${text}` : ''}`)
     }
 
-    const obj = await res.json()
+    const contentType = (res.headers.get('content-type') ?? '').toLowerCase()
+    const text = await res.text()
+
+    // Some OpenAI-compatible gateways always return SSE (text/event-stream) even when stream=false.
+    if (contentType.includes('text/event-stream') || text.startsWith('event:') || text.startsWith('data:')) {
+      const ongoing = new Map()
+      const toolCalls = []
+      const parts = []
+      let responseId = null
+      let usage = undefined
+
+      for (const data of parseSseBlocks(text)) {
+        const trimmed = data.trim()
+        if (!trimmed) continue
+        if (trimmed === '[DONE]') break
+
+        let obj
+        try {
+          obj = JSON.parse(trimmed)
+        } catch {
+          continue
+        }
+        if (!obj || typeof obj !== 'object') continue
+
+        if (typeof obj.response_id === 'string' && obj.response_id) responseId = obj.response_id
+
+        const typ = obj.type
+        if (typ === 'response.created') {
+          const rid = obj.response?.id
+          if (typeof rid === 'string' && rid) responseId = rid
+          continue
+        }
+
+        if (typ === 'response.output_text.delta') {
+          const delta = obj.delta
+          if (typeof delta === 'string' && delta) parts.push(delta)
+          continue
+        }
+
+        if (typ === 'response.output_item.added') {
+          const outputIndex = obj.output_index
+          const item = obj.item
+          if (typeof outputIndex === 'number' && item && typeof item === 'object' && item.type === 'function_call') {
+            const callId = item.call_id
+            const name = item.name
+            if (typeof callId === 'string' && callId && typeof name === 'string' && name) ongoing.set(outputIndex, { callId, name, arguments: '' })
+          }
+          continue
+        }
+
+        if (typ === 'response.function_call_arguments.delta') {
+          const outputIndex = obj.output_index
+          const delta = obj.delta
+          if (typeof outputIndex === 'number' && typeof delta === 'string') {
+            const st = ongoing.get(outputIndex)
+            if (st) st.arguments += delta
+          }
+          continue
+        }
+
+        if (typ === 'response.output_item.done') {
+          const outputIndex = obj.output_index
+          const item = obj.item
+          if (typeof outputIndex === 'number' && item && typeof item === 'object' && item.type === 'function_call') {
+            const st = ongoing.get(outputIndex)
+            const callId = st?.callId ?? item.call_id
+            const name = st?.name ?? item.name
+            const args = st?.arguments ?? item.arguments ?? ''
+            if (typeof callId === 'string' && callId && typeof name === 'string' && name) {
+              toolCalls.push({ toolUseId: callId, name, input: parseToolArguments(args) })
+            }
+          }
+          continue
+        }
+
+        if (typ === 'response.completed') {
+          const rid = obj.response?.id
+          if (typeof rid === 'string' && rid) responseId = rid
+          const u = obj.response?.usage
+          if (u && typeof u === 'object') usage = u
+          continue
+        }
+      }
+
+      return {
+        assistantText: parts.length ? parts.join('') : null,
+        toolCalls,
+        usage,
+        raw: { _sse: true, text },
+        responseId,
+      }
+    }
+
+    // Normal JSON response.
+    let obj = null
+    try {
+      obj = text ? JSON.parse(text) : null
+    } catch (e) {
+      throw new Error(`OpenAIResponsesProvider: invalid JSON: ${String(e?.message ?? e)}`)
+    }
+
     const outputItems = Array.isArray(obj?.output) ? obj.output : []
     const assistantText = parseAssistantText(outputItems)
 
@@ -84,4 +202,3 @@ export class OpenAIResponsesProvider {
     }
   }
 }
-
