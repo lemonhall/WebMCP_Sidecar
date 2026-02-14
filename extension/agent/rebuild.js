@@ -10,6 +10,10 @@ export function rebuildResponsesInput(events) {
   const out = []
   for (const e of events) {
     if (!e || typeof e !== 'object') continue
+    if (e.type === 'system.notice' && typeof e.text === 'string') {
+      out.push({ role: 'system', content: e.text })
+      continue
+    }
     if (e.type === 'user.message' && typeof e.text === 'string') {
       out.push({ role: 'user', content: e.text })
       continue
@@ -34,4 +38,3 @@ export function rebuildResponsesInput(events) {
   }
   return out
 }
-

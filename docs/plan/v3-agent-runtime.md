@@ -20,6 +20,7 @@
 - Tool Adapter：
   - 把页面工具（来自现有 `Refresh` 列表）转成 Agent 工具定义
   - tool.run 时复用现有 Phase 0 `callTool` 消息协议
+- 工具重载：当 active tab URL 变化时重载 tools，并以 `system.notice` 形式注入到 Agent（见 ECN-0007）
 - 事件呈现：Agent 的 tool call 事件在 Chat UI 可见（name/args/result/error）
 
 不做：

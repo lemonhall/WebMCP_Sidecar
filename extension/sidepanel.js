@@ -78,6 +78,10 @@ function renderChatEvent(e) {
     meta = 'assistant.delta'
     text = e.textDelta ?? ''
     isTool = true
+  } else if (e.type === 'system.notice') {
+    meta = 'system.notice'
+    text = e.text ?? ''
+    isTool = true
   } else if (e.type === 'tool.use') {
     meta = `tool.use: ${e.name ?? ''}`
     text = JSON.stringify(e.input ?? {}, null, 2)
@@ -262,6 +266,18 @@ async function wmcpCallTool(toolName, params) {
   throw new Error(payload?.error ?? 'tool call failed')
 }
 
+async function getActiveTabUrl() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+  return typeof tab?.url === 'string' ? tab.url : ''
+}
+
+function makeSystemNoticeForNav(beforeUrl, afterUrl) {
+  return `Notice: active tab navigated.
+from: ${beforeUrl || '(unknown)'}
+to: ${afterUrl || '(unknown)'}
+Action: tools have been reloaded for the new page. Do NOT answer the user task yet; re-check available tools and continue with tool calls if needed.`
+}
+
 async function callTool() {
   const toolName = toolsSelect.value
   let params = {}
@@ -295,6 +311,7 @@ async function onChatSend(sessionStore, sessionId) {
   setChatStatus('running...')
   chatSendBtn.disabled = true
   chatClearBtn.disabled = true
+  let navWatcher = null
 
   try {
     await renderChat(sessionStore, sessionId)
@@ -314,38 +331,73 @@ async function onChatSend(sessionStore, sessionId) {
       return
     }
 
-    const toolsMeta = await wmcpRefreshTools().catch(() => [])
-    const tools = []
-    for (const t of toolsMeta) {
-      if (!t?.name) continue
-      tools.push({
-        name: t.name,
-        description: t.description ?? '',
-        inputSchema: t.inputSchema,
-        run: async (input) => await wmcpCallTool(t.name, input),
-      })
+    const registry = new ToolRegistry()
+    const emitLocal = (ev) => {
+      chatMessagesEl.appendChild(renderChatEvent(ev))
+      scrollChatToBottom()
     }
 
-    const registry = new ToolRegistry()
-    registry.replaceAll(tools)
-    const runner = new ToolRunner({
-      tools: registry,
-      sessionStore,
-      refreshTools: async () => {
-        const toolsMeta2 = await wmcpRefreshTools().catch(() => [])
-        const tools2 = []
-        for (const t of toolsMeta2) {
+    let lastKnownUrl = await getActiveTabUrl().catch(() => '')
+    let navHandling = false
+
+    const refreshRegistryTools = async () => {
+      // Retry briefly because during navigation, content scripts may not be ready yet.
+      for (let i = 0; i < 6; i += 1) {
+        const toolsMeta = await wmcpRefreshTools().catch(() => [])
+        const tools = []
+        for (const t of toolsMeta) {
           if (!t?.name) continue
-          tools2.push({
-            name: t.name,
+          const toolName = t.name
+          tools.push({
+            name: toolName,
             description: t.description ?? '',
             inputSchema: t.inputSchema,
-            run: async (input) => await wmcpCallTool(t.name, input),
+            run: async (input) => {
+              const beforeUrl = await getActiveTabUrl().catch(() => '')
+              const out = await wmcpCallTool(toolName, input)
+
+              // URL change is a strong signal that tools/context may have changed.
+              // Poll briefly because navigation can land just after the tool returns.
+              let afterUrl = await getActiveTabUrl().catch(() => '')
+              if (afterUrl === beforeUrl) {
+                await new Promise((r) => setTimeout(r, 250))
+                afterUrl = await getActiveTabUrl().catch(() => '')
+              }
+              if (afterUrl === beforeUrl) {
+                await new Promise((r) => setTimeout(r, 500))
+                afterUrl = await getActiveTabUrl().catch(() => '')
+              }
+
+              await handleNavChange(beforeUrl, afterUrl)
+              return out
+            },
           })
         }
-        registry.replaceAll(tools2)
-      },
-    })
+        registry.replaceAll(tools)
+        if (tools.length) return
+        await new Promise((r) => setTimeout(r, 250))
+      }
+    }
+
+    const handleNavChange = async (beforeUrl, afterUrl) => {
+      if (!afterUrl || afterUrl === lastKnownUrl) return
+      if (navHandling) return
+      navHandling = true
+      try {
+        const prev = beforeUrl || lastKnownUrl || ''
+        lastKnownUrl = afterUrl
+
+        await refreshRegistryTools()
+        const notice = makeSystemNoticeForNav(prev, afterUrl)
+        await sessionStore.appendEvent(sessionId, { type: 'system.notice', text: notice, ts: Date.now() })
+        emitLocal({ type: 'system.notice', text: notice })
+      } finally {
+        navHandling = false
+      }
+    }
+
+    await refreshRegistryTools()
+    const runner = new ToolRunner({ tools: registry, sessionStore })
     const provider = new OpenAIResponsesProvider({ baseUrl: settings.baseUrl })
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
     const tabUrl = typeof tab?.url === 'string' ? tab.url : ''
@@ -362,9 +414,15 @@ async function onChatSend(sessionStore, sessionId) {
 Current tab title: ${tabTitle || '(unknown)'}
 Current tab URL: ${tabUrl || '(unknown)'}
 Available tool names: ${registry.names().join(', ') || '(none)'}
-Use available tools when needed. If you call searchFlights and a list-flights tool is available, retrieve the list and summarize.`,
+Use available tools when needed.`,
       maxSteps: 8,
     })
+
+    navWatcher = setInterval(() => {
+      getActiveTabUrl()
+        .then((url) => handleNavChange(lastKnownUrl, url))
+        .catch(() => {})
+    }, 600)
 
     for await (const ev of runtime.runTurn({ sessionId, userText: text })) {
       if (ev.type === 'assistant.delta') {
@@ -395,9 +453,11 @@ Use available tools when needed. If you call searchFlights and a list-flights to
       chatMessagesEl.appendChild(renderChatEvent(ev))
       scrollChatToBottom()
     }
+
   } catch (e) {
     await sessionStore.appendEvent(sessionId, { type: 'assistant.message', text: `Agent error: ${String(e?.message ?? e)}`, ts: Date.now() })
   } finally {
+    if (navWatcher) clearInterval(navWatcher)
     setChatStatus('idle')
     chatSendBtn.disabled = false
     chatClearBtn.disabled = false

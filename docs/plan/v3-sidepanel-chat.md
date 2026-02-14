@@ -17,6 +17,7 @@
 - 历史消息持久化（最小实现：`chrome.storage.local`）
 - 顶部入口切到 Inspector，再可切回 Chat
 - Chat 流式渲染（`assistant.delta`），避免长时间无反馈（见 ECN-0006）
+- 当 active tab URL 变化时：重载 tools 并以 `system.notice` 提示 Agent 需要重新评估工具（见 ECN-0007）
 
 不做：
 - 多会话管理（先单会话）
