@@ -21,6 +21,9 @@ function normalizeBaseUrl(raw) {
   let s = String(raw).trim()
   if (!s) return ''
   s = s.replace(/\/+$/, '')
+  if (s.endsWith('/chat/completions')) s = s.slice(0, -'/chat/completions'.length)
+  if (s.endsWith('/responses')) s = s.slice(0, -'/responses'.length)
+  s = s.replace(/\/+$/, '')
   if (!/^https?:\/\//i.test(s)) s = `https://${s}`
   return s
 }
@@ -104,15 +107,6 @@ async function postJson(url, apiKey, body) {
   return { ok: res.ok, status: res.status, statusText: res.statusText, json, text }
 }
 
-function errorLooksLikeInputMustBeList(errorJson) {
-  if (!errorJson) return false
-  const detail = typeof errorJson.detail === 'string' ? errorJson.detail : ''
-  const message = typeof errorJson.message === 'string' ? errorJson.message : ''
-  const innerMessage = typeof errorJson.error?.message === 'string' ? errorJson.error.message : ''
-  const hay = `${detail}\n${message}\n${innerMessage}`.toLowerCase()
-  return hay.includes('input must be a list') || hay.includes('input must be an array')
-}
-
 async function testLLM() {
   setStatus('testing...')
   setResult('')
@@ -133,6 +127,11 @@ async function testLLM() {
     setResult({ ok: false, message: 'model is required' })
     return
   }
+  if (!apiKey) {
+    setStatus('error')
+    setResult({ ok: false, message: 'apiKey is required' })
+    return
+  }
 
   const perm = await ensureHostPermissionForBaseUrl(baseUrl)
   if (!perm.ok) {
@@ -142,55 +141,23 @@ async function testLLM() {
   }
 
   const responsesUrl = buildOpenAICompatibleUrl(baseUrl, '/v1/responses')
-  const attempts = [
-    { label: 'input:string', body: { model, input: 'ping', stream: false } },
-    { label: 'input:[string]', body: { model, input: ['ping'], stream: false } },
-    { label: 'input:[{role,content}]', body: { model, input: [{ role: 'user', content: 'ping' }], stream: false } },
-    {
-      label: 'input:[{role,content:[input_text]}]',
-      body: { model, input: [{ role: 'user', content: [{ type: 'input_text', text: 'ping' }] }], stream: false },
-    },
-  ]
-
-  let r1 = null
-  for (const a of attempts) {
-    const r = await postJson(responsesUrl, apiKey, a.body)
-    r1 = { ...r, attempt: a.label }
-    if (r.ok) {
-      setStatus('ok')
-      setResult({ ok: true, endpoint: '/v1/responses', status: r.status, attempt: a.label, json: r.json ?? r.text })
-      return
-    }
-    if (r.status === 400 && !errorLooksLikeInputMustBeList(r.json)) break
-  }
-
-  // Best-effort fallback for OpenAI-compatible providers that haven't implemented /v1/responses yet.
-  const shouldFallback = r1?.status === 404 || r1?.status === 405
-  if (!shouldFallback) {
-    setStatus('error')
-    setResult({ ok: false, endpoint: '/v1/responses', status: r1?.status, attempt: r1?.attempt, error: r1?.json ?? r1?.text })
-    return
-  }
-
-  const ccUrl = buildOpenAICompatibleUrl(baseUrl, '/v1/chat/completions')
-  const r2 = await postJson(ccUrl, apiKey, {
+  // Match Smart_Bookmark's "Test LLM connection" request shape (OpenAI Responses API).
+  const body = {
     model,
-    messages: [{ role: 'user', content: 'ping' }],
-    stream: false,
-  })
-  if (r2.ok) {
+    store: false,
+    instructions: 'Reply with exactly: Hello world.',
+    input: [{ role: 'user', content: [{ type: 'input_text', text: 'Hello world' }] }],
+  }
+
+  const r1 = await postJson(responsesUrl, apiKey, body)
+  if (r1.ok) {
     setStatus('ok')
-    setResult({ ok: true, endpoint: '/v1/chat/completions', status: r2.status, json: r2.json ?? r2.text })
+    setResult({ ok: true, endpoint: '/v1/responses', status: r1.status, json: r1.json ?? r1.text })
     return
   }
 
   setStatus('error')
-  setResult({
-    ok: false,
-    message: 'Both /v1/responses and /v1/chat/completions failed',
-    responses: { status: r1.status, error: r1.json ?? r1.text },
-    chatCompletions: { status: r2.status, error: r2.json ?? r2.text },
-  })
+  setResult({ ok: false, endpoint: '/v1/responses', status: r1.status, error: r1.json ?? r1.text })
 }
 
 saveBtn.addEventListener('click', () =>
