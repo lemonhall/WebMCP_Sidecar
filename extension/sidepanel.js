@@ -26,7 +26,6 @@ const chatStatusEl = document.getElementById('chatStatus')
 
 // Inspector UI (Phase 0 kernel)
 const refreshBtn = document.getElementById('refresh')
-const grantBtn = document.getElementById('grant')
 const callBtn = document.getElementById('call')
 const fillExampleBtn = document.getElementById('fillExample')
 const toolsSelect = document.getElementById('tools')
@@ -138,32 +137,6 @@ async function loadSettings() {
   }
 }
 
-function toOriginPattern(baseUrlText) {
-  try {
-    const url = new URL(baseUrlText)
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
-    return `${url.origin}/*`
-  } catch {
-    return null
-  }
-}
-
-async function ensureHostPermissionForBaseUrl(baseUrl) {
-  const originPattern = toOriginPattern(baseUrl)
-  if (!originPattern) return { ok: false, error: 'Invalid Base URL (must be http(s) URL)' }
-
-  try {
-    const already = await chrome.permissions.contains({ origins: [originPattern] })
-    if (already) return { ok: true, originPattern, already: true }
-  } catch (_) {
-    // continue to request
-  }
-
-  const granted = await chrome.permissions.request({ origins: [originPattern] })
-  if (!granted) return { ok: false, error: `Permission denied for ${originPattern}` }
-  return { ok: true, originPattern, already: false }
-}
-
 // -------------------------
 // Inspector (Phase 0) logic
 // -------------------------
@@ -250,22 +223,6 @@ async function refreshTools() {
   }
 }
 
-async function grantCurrentSite() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-  if (!tab?.url) throw new Error('No active tab url')
-  const url = new URL(tab.url)
-  const originPattern = `${url.origin}/*`
-
-  const ok = await chrome.permissions.request({ origins: [originPattern] })
-  if (!ok) {
-    setResult({ ok: false, error: 'Permission request was denied' })
-    return
-  }
-  const res = await chrome.runtime.sendMessage({ type: 'wmcp:registerOrigin', originPattern, tabId: tab.id })
-  if (!res?.ok) setResult({ ok: false, error: res?.error ?? 'registerOrigin failed' })
-  setResult({ ok: true, granted: originPattern })
-}
-
 function fillExample() {
   const tool = getSelectedTool()
   if (!tool?.name) return
@@ -334,12 +291,6 @@ async function runAgentTurn(sessionStore, sessionId, userText) {
     return
   }
 
-  const perm = await ensureHostPermissionForBaseUrl(settings.baseUrl)
-  if (!perm.ok) {
-    await sessionStore.appendEvent(sessionId, { type: 'assistant.message', text: `Permission error: ${perm.error}`, ts: Date.now() })
-    return
-  }
-
   const toolsMeta = await wmcpRefreshTools().catch(() => [])
   const registry = new ToolRegistry()
   for (const t of toolsMeta) {
@@ -354,6 +305,10 @@ async function runAgentTurn(sessionStore, sessionId, userText) {
 
   const provider = new OpenAIResponsesProvider({ baseUrl: settings.baseUrl })
   const runner = new ToolRunner({ tools: registry, sessionStore })
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+  const tabUrl = typeof tab?.url === 'string' ? tab.url : ''
+  const tabTitle = typeof tab?.title === 'string' ? tab.title : ''
+
   const runtime = new AgentRuntime({
     sessionStore,
     toolRunner: runner,
@@ -362,7 +317,10 @@ async function runAgentTurn(sessionStore, sessionId, userText) {
     model: settings.model,
     apiKey: settings.apiKey,
     systemPrompt:
-      'You are a browser side-panel agent. Use available tools when needed. If you call a tool, wait for results, then summarize succinctly.',
+      `You are a browser side-panel agent.
+Current tab title: ${tabTitle || '(unknown)'}
+Current tab URL: ${tabUrl || '(unknown)'}
+Use available tools when needed. If you call searchFlights and listFlights is available, call listFlights after searchFlights to retrieve actual results, then summarize.`,
     maxSteps: 8,
   })
 
@@ -409,7 +367,6 @@ tabInspector.addEventListener('click', () => setTabActive('inspector'))
 toolsSelect.addEventListener('change', renderSelectedTool)
 refreshBtn.addEventListener('click', refreshTools)
 callBtn.addEventListener('click', callTool)
-grantBtn.addEventListener('click', () => grantCurrentSite().catch((e) => setResult(String(e?.message ?? e))))
 fillExampleBtn.addEventListener('click', fillExample)
 
 ;(async () => {
@@ -437,4 +394,3 @@ fillExampleBtn.addEventListener('click', fillExample)
   chatMessagesEl.innerHTML = ''
   chatMessagesEl.appendChild(renderChatEvent({ type: 'assistant.message', text: `Boot error: ${msg}` }))
 })
-

@@ -72,18 +72,6 @@ async function saveSettings() {
   setResult({ ok: true, saved: { baseUrl, model, apiKey: apiKey ? '***' : '' } })
 }
 
-async function ensureHostPermissionForBaseUrl(baseUrl) {
-  const origin = new URL(baseUrl).origin
-  const originPattern = `${origin}/*`
-
-  const has = await chrome.permissions.contains({ origins: [originPattern] })
-  if (has) return { ok: true, originPattern, already: true }
-
-  const granted = await chrome.permissions.request({ origins: [originPattern] })
-  if (!granted) return { ok: false, originPattern, error: 'Permission request was denied' }
-  return { ok: true, originPattern, already: false }
-}
-
 async function postJson(url, apiKey, body) {
   const headers = {
     'content-type': 'application/json',
@@ -130,13 +118,6 @@ async function testLLM() {
   if (!apiKey) {
     setStatus('error')
     setResult({ ok: false, message: 'apiKey is required' })
-    return
-  }
-
-  const perm = await ensureHostPermissionForBaseUrl(baseUrl)
-  if (!perm.ok) {
-    setStatus('error')
-    setResult({ ok: false, message: perm.error, originPattern: perm.originPattern })
     return
   }
 

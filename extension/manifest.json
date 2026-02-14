@@ -4,8 +4,7 @@
   "version": "0.0.1",
   "description": "Phase 0 kernel: discover WebMCP tools and call execute() from a Side Panel.",
   "permissions": ["sidePanel", "scripting", "tabs", "storage"],
-  "host_permissions": ["https://googlechromelabs.github.io/*"],
-  "optional_host_permissions": ["<all_urls>"],
+  "host_permissions": ["<all_urls>"],
   "side_panel": {
     "default_path": "sidepanel.html"
   },
@@ -19,12 +18,12 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://googlechromelabs.github.io/*"],
+      "matches": ["<all_urls>"],
       "js": ["content_isolated.js"],
       "run_at": "document_start"
     },
     {
-      "matches": ["https://googlechromelabs.github.io/*"],
+      "matches": ["<all_urls>"],
       "js": ["main_bridge.js"],
       "run_at": "document_start",
       "world": "MAIN"
