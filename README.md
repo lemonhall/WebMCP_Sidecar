@@ -26,6 +26,17 @@ This project is intended for **Developer Mode** (not Chrome Web Store).
 - Click the extension icon (or pin it first)
 - Chrome should open a **Side Panel** for this extension
 
+## Screenshots
+
+1) Side Panel — Chat + Inspector tabs  
+![Side Panel](./screenshot1.png)
+
+2) Inspector — Refresh tools and call  
+![Inspector](./screenshot2.png)
+
+3) Options/Settings — LLM + Files (OPFS)  
+![Options](./screenshot3.png)
+
 ## Quick start (WebMCP flight demo)
 
 1) Open the WebMCP flight search demo:

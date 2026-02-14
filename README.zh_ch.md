@@ -26,6 +26,17 @@ English README: `README.md`
 - 点击扩展图标（建议先固定到工具栏）
 - Chrome 会打开该扩展的 **侧边栏（Side Panel）**
 
+## 截图
+
+1) Side Panel — Chat + Inspector  
+![Side Panel](./screenshot1.png)
+
+2) Inspector — Refresh / Call  
+![Inspector](./screenshot2.png)
+
+3) Options/Settings — LLM + Files（OPFS）  
+![Options](./screenshot3.png)
+
 ## 快速验证（WebMCP 航班 Demo）
 
 1) 打开 WebMCP demo：
@@ -86,4 +97,3 @@ Provider 期望是 **兼容 OpenAI Responses API** 的服务端。
 - 计划：`docs/plan/`
 - 变更说明：`docs/ecn/`
 - 研究资料：`docs/research/`
-
