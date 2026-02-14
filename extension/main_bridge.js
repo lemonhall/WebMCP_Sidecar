@@ -1,5 +1,16 @@
 ;(function () {
+  const STATE_KEY = '__wmcp_sidecar_main_bridge_state_v1__'
   const BRIDGE_NAMESPACE = '__wmcp_sidecar_bridge_v1__'
+
+  const state = window[STATE_KEY] || (window[STATE_KEY] = { installed: false, tools: new Map() })
+  if (state.installed) {
+    // Best-effort: if re-injected, just ensure polyfill/hook is present.
+    try {
+      if ('modelContext' in navigator && navigator.modelContext && navigator.modelContext.__wmcp_sidecar_hooked__) return
+    } catch (_) {
+      // ignore
+    }
+  }
 
   function safeJson(value) {
     try {
@@ -9,7 +20,7 @@
     }
   }
 
-  const tools = new Map()
+  const tools = state.tools
 
   function snapshotTools() {
     return Array.from(tools.values()).map((t) => ({
@@ -102,6 +113,9 @@
   }
 
   tryInit()
+
+  if (state.installed) return
+  state.installed = true
 
   window.addEventListener('message', (event) => {
     const msg = event?.data

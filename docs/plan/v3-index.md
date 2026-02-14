@@ -46,7 +46,7 @@ DoD（硬口径）：
 
 ## ECN Index
 
-- （v3 新增如有变更再补）
+- `docs/ecn/ECN-0004-duplicate-injection-idempotent.md`
 
 ## Differences
 
